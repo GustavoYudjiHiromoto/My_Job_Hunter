@@ -44,6 +44,31 @@ export interface ProfessionalProfile {
   preference: Preference | null
 }
 
+export interface JobSource {
+  source: string
+  external_id: string
+  source_url: string
+  collected_at: string
+}
+
+export interface Job {
+  id: number
+  title: string
+  company: string
+  description: string
+  location: string | null
+  workplace_type: string | null
+  seniority: string | null
+  employment_type: string | null
+  salary_min: number | null
+  salary_max: number | null
+  salary_currency: string | null
+  published_at: string | null
+  status: string
+  created_at: string
+  sources: JobSource[]
+}
+
 export const emptyPreference: Preference = {
   desired_titles: '',
   desired_locations: '',

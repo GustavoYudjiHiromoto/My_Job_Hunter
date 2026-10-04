@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from './api'
+import JobsPanel from './JobsPanel'
 import { emptyPreference, type ProfessionalProfile } from './types'
 
 const emptyProfile: ProfessionalProfile = {
@@ -93,7 +94,7 @@ export default function App() {
 
   return (
     <main className="page-shell">
-      <header className="topbar"><a className="brand" href="#top"><span className="brand-mark">J</span> job hunter</a><span className="phase-label"><i /> Seu espaço profissional</span></header>
+      <header className="topbar"><a className="brand" href="#top"><span className="brand-mark">J</span> job hunter</a><nav className="topnav"><a href="#profile">Perfil</a><a href="#jobs">Vagas</a></nav><span className="phase-label"><i /> Seu espaço profissional</span></header>
       <section className="hero" id="top">
         <div><p className="eyebrow">M1 · SEU PONTO DE PARTIDA</p><h1>Um perfil claro.<br /><span>Oportunidades melhores.</span></h1><p className="hero-description">Reúna sua trajetória e o que você procura. Este perfil será a base das recomendações nos próximos marcos.</p></div>
         <div className="hero-orbit" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="orbit-core">J<span>H</span></div><b className="orbit-star star-one">✳</b><b className="orbit-star star-two">✳</b></div>
@@ -101,7 +102,7 @@ export default function App() {
       {(error || notice) && <div className={error ? 'feedback error' : 'feedback success'} role="status">{error || notice}</div>}
       <div className="content-grid">
         <div className="main-column">
-          <section className="panel">
+          <section className="panel" id="profile">
             <div className="section-heading"><div className="section-icon">01</div><div><p className="eyebrow">QUEM É VOCÊ</p><h2>Perfil profissional</h2></div></div>
             <form onSubmit={saveProfile} className="form-grid">
               <label>Nome completo<input name="full_name" defaultValue={profile.full_name} placeholder="Como devemos chamar você?" /></label>
@@ -163,7 +164,8 @@ export default function App() {
           <div className="privacy-note"><span aria-hidden="true">✳</span><p><strong>Seu perfil, suas escolhas.</strong><br />Seus dados ficam armazenados localmente neste MVP.</p></div>
         </aside>
       </div>
-      <footer className="footer"><span>job hunter <b>·</b> M0 + M1</span><span>Feito para encontrar o próximo passo.</span></footer>
+      <JobsPanel />
+      <footer className="footer"><span>job hunter <b>·</b> M0 + M2</span><span>Feito para encontrar o próximo passo.</span></footer>
     </main>
   )
 }

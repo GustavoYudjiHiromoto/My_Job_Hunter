@@ -44,4 +44,14 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1: estrutura inicial, perfil profissional, experiências, formação e preferências. Adaptadores de fontes e providers de IA são apenas pontos de extensão. Coleta de vagas, ranking, deduplicação, notificações e candidatura não estão implementados.
+M0/M1/M2: estrutura inicial, perfil profissional, experiências, formação, preferências e importação local de vagas de demonstração. O adapter de fixture exercita o contrato de coleta; adapters para fontes externas, ranking, deduplicação, notificações e candidatura não estão implementados.
+
+## M2: vagas de demonstração
+
+A seção Vagas na interface importa uma pequena lista fictícia para validar o modelo comum. A importação é idempotente para o par fonte + identificador externo e não faz requisições a sites de emprego.
+
+- POST /api/jobs/import-fixture: importa ou atualiza os registros do fixture local.
+- GET /api/jobs: lista vagas com seus registros de origem.
+- GET /api/jobs/{id}: retorna uma vaga e suas origens.
+
+Os links do fixture usam example.com e não são anúncios reais. A interface marca esses itens como demonstração. O contrato canônico e a interface JobAdapter ficam prontos para um adapter oficial em M3.

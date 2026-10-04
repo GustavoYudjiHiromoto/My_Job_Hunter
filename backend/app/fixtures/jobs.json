@@ -1,0 +1,55 @@
+[
+  {
+    "external_id": "demo-001",
+    "title": "Pessoa Desenvolvedora Backend Júnior",
+    "company": "Nuvem Clara",
+    "description": "Desenvolvimento de APIs com Python e colaboração com o time de produto.",
+    "location": "São Paulo, SP",
+    "workplace_type": "Híbrido",
+    "seniority": "Júnior",
+    "employment_type": "CLT",
+    "salary_min": 4500,
+    "salary_max": 6500,
+    "salary_currency": "BRL",
+    "published_at": "2026-09-24T12:00:00Z",
+    "source_url": "https://example.com/jobs/demo-001",
+    "original_payload": {
+      "fixture_note": "Vaga fictícia para validar a listagem e o contrato canônico."
+    }
+  },
+  {
+    "external_id": "demo-002",
+    "title": "Analista de Dados Pleno",
+    "company": "Ponte Analytics",
+    "description": "Construção de relatórios, consultas SQL e análise de indicadores.",
+    "location": "Remoto - Brasil",
+    "workplace_type": "Remoto",
+    "seniority": "Pleno",
+    "employment_type": "PJ",
+    "salary_currency": "BRL",
+    "published_at": "2026-09-20T09:30:00Z",
+    "source_url": "https://example.com/jobs/demo-002",
+    "original_payload": {
+      "fixture_note": "Salário não informado: campos de remuneração permanecem desconhecidos."
+    }
+  },
+  {
+    "external_id": "demo-003",
+    "title": "Desenvolvedor(a) Full Stack",
+    "company": "Oficina Digital",
+    "description": "Atuação em aplicações web. Local e modalidade não informados.",
+    "source_url": "https://example.com/jobs/demo-003"
+  },
+  {
+    "external_id": "demo-004",
+    "title": "Estágio em Engenharia de Software",
+    "company": "Laboratório Horizonte",
+    "description": "Oportunidade de estágio para estudantes de tecnologia.",
+    "location": "Campinas, SP",
+    "workplace_type": "Presencial",
+    "seniority": "Estágio",
+    "employment_type": "Estágio",
+    "status": "closed",
+    "source_url": "https://example.com/jobs/demo-004"
+  }
+]

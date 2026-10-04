@@ -15,9 +15,11 @@ describe('perfil profissional', () => {
   })
 
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true, status: 200, json: async () => profile,
-    }))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => url === '/api/jobs' ? [] : profile,
+    })))
   })
 
   it('carrega e exibe perfil, formação e preferências', async () => {

@@ -1,4 +1,4 @@
-import type { Education, Experience, Preference, ProfessionalProfile } from './types'
+import type { Education, Experience, Job, Preference, ProfessionalProfile } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -22,4 +22,12 @@ export const api = {
   addEducation: (data: object) => request<Education>('/education', { method: 'POST', body: JSON.stringify(data) }),
   deleteEducation: (id: number) => request<void>('/education/' + id, { method: 'DELETE' }),
   savePreference: (data: object) => request<Preference>('/preferences', { method: 'PUT', body: JSON.stringify(data) }),
+  jobs: () => fetch('/api/jobs').then(async (response) => {
+    if (!response.ok) throw new Error('Não foi possível carregar as vagas.')
+    return response.json() as Promise<Job[]>
+  }),
+  importFixture: () => fetch('/api/jobs/import-fixture', { method: 'POST' }).then(async (response) => {
+    if (!response.ok) throw new Error('Não foi possível importar as vagas de demonstração.')
+    return response.json() as Promise<{ created: number; updated: number; total: number }>
+  }),
 }
