@@ -63,7 +63,7 @@ describe('lista de vagas M2', () => {
 
     expect(await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })).toBeInTheDocument()
     expect(screen.getByText('Remuneração não informada')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ver origem ↗' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Ver origem DEMONSTRAÇÃO ↗' })).toHaveAttribute(
       'href',
       'https://example.com/jobs/demo-001',
     )
@@ -90,5 +90,29 @@ describe('lista de vagas M2', () => {
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-greenhouse', { method: 'POST' }))
     expect(await screen.findByRole('status')).toHaveTextContent('Greenhouse: 2 novas · 0 atualizadas · 2 vagas de 1/1 boards')
+  })
+
+  it('mostra um link para cada origem associada à vaga', async () => {
+    jobs[0].sources.push({
+      source: 'greenhouse',
+      external_id: 'company:123',
+      source_url: 'https://boards.greenhouse.io/company/jobs/123',
+      collected_at: '2026-10-04T12:00:00Z',
+    })
+
+    try {
+      render(<JobsPanel />)
+
+      expect(await screen.findByRole('link', { name: 'Ver origem DEMONSTRAÇÃO ↗' })).toHaveAttribute(
+        'href',
+        'https://example.com/jobs/demo-001',
+      )
+      expect(screen.getByRole('link', { name: 'Ver origem GREENHOUSE ↗' })).toHaveAttribute(
+        'href',
+        'https://boards.greenhouse.io/company/jobs/123',
+      )
+    } finally {
+      jobs[0].sources.pop()
+    }
   })
 })

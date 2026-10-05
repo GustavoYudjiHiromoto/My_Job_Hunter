@@ -19,6 +19,10 @@ function publishedLabel(value: string | null) {
   return 'Publicada em ' + new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(value))
 }
 
+function sourceLabel(source: string) {
+  return source === 'fixture' ? 'DEMONSTRAÇÃO' : source.toUpperCase()
+}
+
 export default function JobsPanel() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
@@ -101,8 +105,8 @@ export default function JobsPanel() {
           {jobs.map((job) => {
             const source = job.sources[0]
             return <article className="job-card" key={job.id}>
-              <div className="job-card-top"><span className={source.source === 'fixture' ? 'demo-badge' : 'demo-badge greenhouse-badge'}>{source.source === 'fixture' ? 'DEMONSTRAÇÃO' : 'GREENHOUSE'}</span><span className={job.status === 'open' ? 'job-status open' : 'job-status'}>{job.status === 'open' ? 'Aberta' : job.status === 'closed' ? 'Encerrada' : 'Status desconhecido'}</span></div>
-              <div className="job-card-main"><div><h3>{job.title}</h3><p className="job-company">{job.company}</p></div><a className="source-link" href={source.source_url} target="_blank" rel="noreferrer">Ver origem ↗</a></div>
+              <div className="job-card-top"><div className="job-source-badges">{job.sources.map((item) => <span key={item.source + item.external_id} className={item.source === 'fixture' ? 'demo-badge' : 'demo-badge greenhouse-badge'}>{sourceLabel(item.source)}</span>)}</div><span className={job.status === 'open' ? 'job-status open' : 'job-status'}>{job.status === 'open' ? 'Aberta' : job.status === 'closed' ? 'Encerrada' : 'Status desconhecido'}</span></div>
+              <div className="job-card-main"><div><h3>{job.title}</h3><p className="job-company">{job.company}</p></div></div>
               <div className="job-meta">
                 {job.location && <span>⌖ {job.location}</span>}
                 {job.workplace_type && <span>{job.workplace_type}</span>}
@@ -110,7 +114,8 @@ export default function JobsPanel() {
                 {job.employment_type && <span>{job.employment_type}</span>}
                 <span>{salaryLabel(job)}</span>
               </div>
-              <div className="job-card-bottom"><span>{publishedLabel(job.published_at)}</span><span>Origem: {source.source} · {source.external_id}</span></div>
+              <div className="job-card-bottom"><span>{publishedLabel(job.published_at)}</span><span>{job.sources.length > 1 ? `${job.sources.length} origens` : `Origem: ${source.source} · ${source.external_id}`}</span></div>
+              <div className="job-source-links">{job.sources.map((item) => <a key={item.source + item.external_id} className="source-link" href={item.source_url} target="_blank" rel="noreferrer">Ver origem {sourceLabel(item.source)} ↗</a>)}</div>
               <details className="job-description"><summary>Ver descrição</summary><p>{job.description || 'A fonte não informou uma descrição para esta vaga.'}</p></details>
             </article>
           })}

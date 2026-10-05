@@ -71,6 +71,8 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .job-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:9px;max-width:430px}
 .job-actions small{flex-basis:100%;text-align:right;color:#929990;font-size:9px}
 .greenhouse-badge{background:#e8f0e9;color:#3e7654}
+.job-source-badges,.job-source-links{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.job-source-links{margin-top:12px}
 .jobs-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .job-card{background:#fff;border:1px solid #eeeee7;border-radius:13px;padding:20px 21px;box-shadow:0 4px 18px #293d3108}
 .job-card-top,.job-card-main,.job-card-bottom{display:flex;justify-content:space-between;align-items:center;gap:12px}

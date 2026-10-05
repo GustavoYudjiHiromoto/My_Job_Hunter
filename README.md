@@ -44,7 +44,7 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2/M3: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração e coleta pública do Greenhouse. Ranking, deduplicação entre fontes, notificações e candidatura não estão implementados.
+M0/M1/M2/M3/M4: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e deduplicação conservadora entre fontes. Análise de compatibilidade, ranking, notificações e candidatura não estão implementados.
 
 ## M2: vagas de demonstração
 
@@ -68,3 +68,7 @@ Configure um ou mais tokens de boards separados por vírgula antes de iniciar o 
 - POST /api/jobs/import-greenhouse: coleta os boards configurados e importa/atualiza as vagas.
 - Cada board é processado separadamente; uma falha parcial é relatada sem descartar os boards que responderam.
 - A interface permite acionar a importação manualmente. Nenhuma candidatura é enviada.
+
+## M4: deduplicação entre fontes
+
+Uma vaga importada por outra fonte é associada à vaga existente quando há URL canônica idêntica ou correspondência exata de título, empresa e localização após normalização de caixa, acentos e pontuação. A assinatura textual exige localização; quando falta localização e não há URL comum, as vagas permanecem separadas. Correspondências ambíguas também não são consolidadas automaticamente. Cada origem mantém seu ID e URL originais, exibidos na interface.
