@@ -56,6 +56,25 @@ class JobRead(BaseModel):
     sources: list[JobSourceRead]
 
 
+class MatchCriterion(BaseModel):
+    key: str
+    label: str
+    result: Literal["match", "mismatch", "partial", "unknown"]
+    weight: int
+    points: int
+    explanation: str
+
+
+class JobRecommendation(BaseModel):
+    job: JobRead
+    score: int = Field(ge=0, le=100)
+    coverage: int = Field(ge=0, le=100)
+    excluded: bool
+    strengths: list[str]
+    gaps: list[str]
+    criteria: list[MatchCriterion]
+
+
 class ImportResult(BaseModel):
     source: str
     created: int

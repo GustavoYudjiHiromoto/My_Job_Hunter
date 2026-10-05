@@ -69,6 +69,33 @@ export interface Job {
   sources: JobSource[]
 }
 
+export interface MatchCriterion {
+  key: string
+  label: string
+  result: 'match' | 'mismatch' | 'partial' | 'unknown'
+  weight: number
+  points: number
+  explanation: string
+}
+
+export interface JobRecommendation {
+  job: Job
+  score: number
+  coverage: number
+  excluded: boolean
+  strengths: string[]
+  gaps: string[]
+  criteria: MatchCriterion[]
+}
+
+export interface RecommendationFilters {
+  min_score?: number
+  location?: string
+  workplace_type?: string
+  status?: 'open' | 'closed' | 'all'
+  include_excluded?: boolean
+}
+
 export interface GreenhouseImportResult {
   source: 'greenhouse'
   boards_configured: number

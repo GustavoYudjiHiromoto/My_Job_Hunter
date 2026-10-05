@@ -1,12 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.adapters.fixture import FixtureAdapter
 from app.core.config import get_greenhouse_board_tokens
 from app.db.session import get_db
 from app.repositories.jobs import get_job, list_jobs
-from app.schemas.jobs import GreenhouseImportResult, ImportResult, JobRead
+from app.repositories.profile import get_or_create_profile
+from app.schemas.jobs import GreenhouseImportResult, ImportResult, JobRead, JobRecommendation
 from app.services.jobs import import_from_adapter, import_greenhouse_boards
+from app.services.matching import rank_jobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -14,6 +18,27 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 @router.get("", response_model=list[JobRead])
 def read_jobs(db: Session = Depends(get_db)):
     return list_jobs(db)
+
+
+@router.get("/recommendations", response_model=list[JobRecommendation])
+def read_recommendations(
+    min_score: int = Query(default=0, ge=0, le=100),
+    location: str | None = Query(default=None, min_length=1, max_length=200),
+    workplace_type: str | None = Query(default=None, min_length=1, max_length=40),
+    status: Literal["open", "closed", "all"] = "open",
+    include_excluded: bool = True,
+    db: Session = Depends(get_db),
+):
+    profile = get_or_create_profile(db)
+    return rank_jobs(
+        list_jobs(db),
+        profile,
+        min_score=min_score,
+        location=location,
+        workplace_type=workplace_type,
+        status=status,
+        include_excluded=include_excluded,
+    )
 
 
 @router.get("/{job_id}", response_model=JobRead)

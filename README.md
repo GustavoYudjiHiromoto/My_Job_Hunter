@@ -44,7 +44,7 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2/M3/M4: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e deduplicação conservadora entre fontes. Análise de compatibilidade, ranking, notificações e candidatura não estão implementados.
+M0/M1/M2/M3/M4/M5: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse, deduplicação conservadora entre fontes e recomendações ranqueadas com análise determinística de compatibilidade. IA, notificações e candidatura não estão implementadas.
 
 ## M2: vagas de demonstração
 
@@ -72,3 +72,12 @@ Configure um ou mais tokens de boards separados por vírgula antes de iniciar o 
 ## M4: deduplicação entre fontes
 
 Uma vaga importada por outra fonte é associada à vaga existente quando há URL canônica idêntica ou correspondência exata de título, empresa e localização após normalização de caixa, acentos e pontuação. A assinatura textual exige localização; quando falta localização e não há URL comum, as vagas permanecem separadas. Correspondências ambíguas também não são consolidadas automaticamente. Cada origem mantém seu ID e URL originais, exibidos na interface.
+
+## M5: compatibilidade e ranking
+
+- GET /api/jobs/recommendations: retorna vagas abertas ordenadas por score e cobertura da análise.
+- Filtros disponíveis: `min_score`, `location`, `workplace_type`, `status` (`open`, `closed` ou `all`) e `include_excluded`.
+- O score determinístico usa cargos, localização, modalidade, nível, contrato, salário, habilidades do perfil e critérios obrigatórios, com pesos explícitos no serviço de análise.
+- A comparação de habilidades usa o campo estruturado de habilidades e cargos das experiências; o texto livre do currículo não é interpretado automaticamente nesta versão.
+- Campos ausentes aparecem como desconhecidos e não reduzem a cobertura. Critérios configurados como excluídos são identificados, recebem score zero e podem ser incluídos ou removidos do resultado.
+- Os resultados são calculados sob demanda a partir do perfil e das vagas atuais; não são persistidos. A análise não usa IA nem infere competências ausentes do perfil.

@@ -1,4 +1,4 @@
-import type { Education, Experience, GreenhouseImportResult, Job, Preference, ProfessionalProfile } from './types'
+import type { Education, Experience, GreenhouseImportResult, Job, JobRecommendation, Preference, ProfessionalProfile, RecommendationFilters } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -26,6 +26,16 @@ export const api = {
     if (!response.ok) throw new Error('Não foi possível carregar as vagas.')
     return response.json() as Promise<Job[]>
   }),
+  recommendations: (filters: RecommendationFilters = {}) => {
+    const params = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') params.set(key, String(value))
+    })
+    return fetch('/api/jobs/recommendations?' + params.toString()).then(async (response) => {
+      if (!response.ok) throw new Error('Não foi possível carregar as recomendações.')
+      return response.json() as Promise<JobRecommendation[]>
+    })
+  },
   importFixture: () => fetch('/api/jobs/import-fixture', { method: 'POST' }).then(async (response) => {
     if (!response.ok) throw new Error('Não foi possível importar as vagas de demonstração.')
     return response.json() as Promise<{ created: number; updated: number; total: number }>

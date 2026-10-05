@@ -26,7 +26,17 @@ const jobs = [{
   }],
 }]
 
-describe('lista de vagas M2', () => {
+const recommendations = [{
+  job: jobs[0],
+  score: 82,
+  coverage: 80,
+  excluded: false,
+  strengths: ['Cargo compatível com backend.', 'Habilidade Python encontrada.'],
+  gaps: ['Faixa salarial anunciada está fora da preferência.'],
+  criteria: [{ key: 'title', label: 'Cargo desejado', result: 'match', weight: 20, points: 20, explanation: 'Cargo compatível.' }],
+}]
+
+describe('recomendações de vagas M5', () => {
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
@@ -54,11 +64,14 @@ describe('lista de vagas M2', () => {
           }),
         })
       }
+      if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
+        return Promise.resolve({ ok: true, json: async () => recommendations })
+      }
       return Promise.resolve({ ok: true, json: async () => jobs })
     }))
   })
 
-  it('mostra os dados normalizados e a origem original', async () => {
+  it('mostra score, explicação e a origem original', async () => {
     render(<JobsPanel />)
 
     expect(await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })).toBeInTheDocument()
@@ -68,6 +81,9 @@ describe('lista de vagas M2', () => {
       'https://example.com/jobs/demo-001',
     )
     expect(screen.getByText('DEMONSTRAÇÃO')).toBeInTheDocument()
+    expect(screen.getByText('82%')).toBeInTheDocument()
+    expect(screen.getByText('Habilidade Python encontrada.')).toBeInTheDocument()
+    expect(screen.getByText('Faixa salarial anunciada está fora da preferência.')).toBeInTheDocument()
   })
 
   it('importa o fixture e informa o resultado', async () => {
@@ -114,5 +130,21 @@ describe('lista de vagas M2', () => {
     } finally {
       jobs[0].sources.pop()
     }
+  })
+
+  it('aplica os filtros de score, localização e modalidade na consulta', async () => {
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+
+    await user.clear(screen.getByLabelText('Score mínimo'))
+    await user.type(screen.getByLabelText('Score mínimo'), '60')
+    await user.type(screen.getByLabelText('Localização'), 'São Paulo')
+    await user.selectOptions(screen.getByLabelText('Modalidade'), 'remote')
+    await user.click(screen.getByRole('button', { name: 'Aplicar filtros' }))
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/jobs/recommendations?min_score=60&location=S%C3%A3o+Paulo&workplace_type=remote&include_excluded=true',
+    ))
   })
 })

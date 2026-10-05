@@ -18,7 +18,7 @@ describe('perfil profissional', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve({
       ok: true,
       status: 200,
-      json: async () => url === '/api/jobs' ? [] : profile,
+      json: async () => url.startsWith('/api/jobs/recommendations') ? [] : url === '/api/jobs' ? [] : profile,
     })))
   })
 
