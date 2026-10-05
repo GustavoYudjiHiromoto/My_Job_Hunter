@@ -40,6 +40,20 @@ describe('lista de vagas M2', () => {
           json: async () => ({ created: 1, updated: 0, total: 1 }),
         })
       }
+      if (url === '/api/jobs/import-greenhouse' && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: 'greenhouse',
+            boards_configured: 1,
+            boards_succeeded: 1,
+            created: 2,
+            updated: 0,
+            total: 2,
+            errors: [],
+          }),
+        })
+      }
       return Promise.resolve({ ok: true, json: async () => jobs })
     }))
   })
@@ -61,9 +75,20 @@ describe('lista de vagas M2', () => {
     render(<JobsPanel />)
     await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
 
-    await user.click(screen.getByRole('button', { name: /Carregar vagas de demonstração/ }))
+    await user.click(screen.getByRole('button', { name: /Carregar demonstração/ }))
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-fixture', { method: 'POST' }))
     expect(await screen.findByRole('status')).toHaveTextContent('1 novas · 0 atualizadas · 1 no arquivo')
+  })
+
+  it('aciona a importação do Greenhouse e apresenta o resumo', async () => {
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+
+    await user.click(screen.getByRole('button', { name: /Importar Greenhouse/ }))
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-greenhouse', { method: 'POST' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Greenhouse: 2 novas · 0 atualizadas · 2 vagas de 1/1 boards')
   })
 })

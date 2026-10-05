@@ -40,3 +40,55 @@ def test_job_details_include_original_source_and_unknown_job_returns_404(client)
     assert detail.json()["id"] == job_id
     assert detail.json()["sources"][0]["source_url"].startswith("https://example.com/")
     assert client.get("/api/jobs/999999").status_code == 404
+
+
+def test_greenhouse_import_reports_partial_board_errors(client, monkeypatch):
+    from app.adapters.greenhouse import GreenhouseSourceError
+    from app.schemas.jobs import NormalizedJob
+
+    class FakeGreenhouseAdapter:
+        source_name = "greenhouse"
+
+        def __init__(self, board_token):
+            self.board_token = board_token
+
+        def fetch_jobs(self):
+            if self.board_token == "unavailable":
+                raise GreenhouseSourceError("HTTP 503 para board 'unavailable'.")
+            return [
+                NormalizedJob(
+                    source="greenhouse",
+                    external_id=f"{self.board_token}:101",
+                    title="Platform Engineer",
+                    company="Example Ltd",
+                    source_url="https://boards.greenhouse.io/example/jobs/101",
+                )
+            ]
+
+    monkeypatch.setattr(
+        "app.api.routes.jobs.get_greenhouse_board_tokens",
+        lambda: ["example", "unavailable"],
+    )
+    monkeypatch.setattr("app.services.jobs.GreenhouseAdapter", FakeGreenhouseAdapter)
+
+    response = client.post("/api/jobs/import-greenhouse")
+
+    assert response.status_code == 200
+    assert response.json()["boards_configured"] == 2
+    assert response.json()["boards_succeeded"] == 1
+    assert response.json()["created"] == 1
+    assert response.json()["errors"] == [
+        {"board_token": "unavailable", "message": "HTTP 503 para board 'unavailable'."}
+    ]
+    stored = client.get("/api/jobs").json()
+    assert len(stored) == 1
+    assert stored[0]["sources"][0]["source"] == "greenhouse"
+
+
+def test_greenhouse_import_requires_board_configuration(client, monkeypatch):
+    monkeypatch.setattr("app.api.routes.jobs.get_greenhouse_board_tokens", lambda: [])
+
+    response = client.post("/api/jobs/import-greenhouse")
+
+    assert response.status_code == 503
+    assert "GREENHOUSE_BOARDS" in response.json()["detail"]

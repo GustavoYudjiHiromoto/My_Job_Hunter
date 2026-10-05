@@ -68,6 +68,9 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .jobs-intro h2{font:700 27px Arial,sans-serif;letter-spacing:-.8px;margin:0 0 8px}
 .jobs-intro p:not(.eyebrow){font-size:12px;color:#788078;margin:0}
 .jobs-intro .eyebrow{margin-bottom:8px}
+.job-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:9px;max-width:430px}
+.job-actions small{flex-basis:100%;text-align:right;color:#929990;font-size:9px}
+.greenhouse-badge{background:#e8f0e9;color:#3e7654}
 .jobs-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .job-card{background:#fff;border:1px solid #eeeee7;border-radius:13px;padding:20px 21px;box-shadow:0 4px 18px #293d3108}
 .job-card-top,.job-card-main,.job-card-bottom{display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -89,4 +92,4 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .jobs-empty h3{font:700 15px Arial,sans-serif;color:#35473a;margin:0 0 7px}
 .jobs-empty p{margin:0}
 @media(max-width:850px){.page-shell{padding:0 24px}.content-grid{grid-template-columns:1fr}.side-column{grid-row:2}.hero-orbit{margin-right:20px;transform:scale(.82)}}
-@media(max-width:560px){.page-shell{padding:0 16px}.topbar{height:62px}.topnav{gap:12px;margin-right:12px}.topnav a{font-size:11px}.phase-label{display:none}.hero{min-height:265px;padding:35px 4px}.hero-orbit{display:none}h1{font-size:40px}.panel{padding:21px 17px}.form-grid{grid-template-columns:1fr}.full-width{grid-column:auto}.footer{gap:15px;flex-direction:column}.aside-intro{margin-left:0}.jobs-intro{align-items:flex-start;flex-direction:column}.jobs-list{grid-template-columns:1fr}.job-card-bottom{align-items:flex-start;flex-direction:column}}
+@media(max-width:560px){.page-shell{padding:0 16px}.topbar{height:62px}.topnav{gap:12px;margin-right:12px}.topnav a{font-size:11px}.phase-label{display:none}.hero{min-height:265px;padding:35px 4px}.hero-orbit{display:none}h1{font-size:40px}.panel{padding:21px 17px}.form-grid{grid-template-columns:1fr}.full-width{grid-column:auto}.footer{gap:15px;flex-direction:column}.aside-intro{margin-left:0}.jobs-intro{align-items:flex-start;flex-direction:column}.job-actions{justify-content:flex-start}.job-actions small{text-align:left}.jobs-list{grid-template-columns:1fr}.job-card-bottom{align-items:flex-start;flex-direction:column}}

@@ -1,4 +1,4 @@
-import type { Education, Experience, Job, Preference, ProfessionalProfile } from './types'
+import type { Education, Experience, GreenhouseImportResult, Job, Preference, ProfessionalProfile } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -29,5 +29,12 @@ export const api = {
   importFixture: () => fetch('/api/jobs/import-fixture', { method: 'POST' }).then(async (response) => {
     if (!response.ok) throw new Error('Não foi possível importar as vagas de demonstração.')
     return response.json() as Promise<{ created: number; updated: number; total: number }>
+  }),
+  importGreenhouse: () => fetch('/api/jobs/import-greenhouse', { method: 'POST' }).then(async (response) => {
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(typeof body?.detail === 'string' ? body.detail : 'Não foi possível importar as vagas do Greenhouse.')
+    }
+    return response.json() as Promise<GreenhouseImportResult>
   }),
 }

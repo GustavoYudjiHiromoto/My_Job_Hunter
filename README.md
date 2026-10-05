@@ -44,7 +44,7 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2: estrutura inicial, perfil profissional, experiências, formação, preferências e importação local de vagas de demonstração. O adapter de fixture exercita o contrato de coleta; adapters para fontes externas, ranking, deduplicação, notificações e candidatura não estão implementados.
+M0/M1/M2/M3: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração e coleta pública do Greenhouse. Ranking, deduplicação entre fontes, notificações e candidatura não estão implementados.
 
 ## M2: vagas de demonstração
 
@@ -54,4 +54,17 @@ A seção Vagas na interface importa uma pequena lista fictícia para validar o 
 - GET /api/jobs: lista vagas com seus registros de origem.
 - GET /api/jobs/{id}: retorna uma vaga e suas origens.
 
-Os links do fixture usam example.com e não são anúncios reais. A interface marca esses itens como demonstração. O contrato canônico e a interface JobAdapter ficam prontos para um adapter oficial em M3.
+Os links do fixture usam example.com e não são anúncios reais. A interface marca esses itens como demonstração.
+
+## M3: Greenhouse
+
+O adapter consulta a Job Board API oficial do Greenhouse, que disponibiliza vagas publicadas por board e não exige autenticação para requisições GET. Ele usa o endpoint público de listagem com conteúdo, mantém o URL original, converte a descrição HTML em texto e ignora prospect posts. Campos que a resposta não informa permanecem desconhecidos. Consulte a [documentação oficial da Job Board API](https://docs.greenhouse.io/job-board.html).
+
+Configure um ou mais tokens de boards separados por vírgula antes de iniciar o backend. O token é a parte final do URL do job board Greenhouse:
+
+    $env:GREENHOUSE_BOARDS = "empresa_a,empresa_b"
+    uvicorn app.main:app --reload --app-dir backend
+
+- POST /api/jobs/import-greenhouse: coleta os boards configurados e importa/atualiza as vagas.
+- Cada board é processado separadamente; uma falha parcial é relatada sem descartar os boards que responderam.
+- A interface permite acionar a importação manualmente. Nenhuma candidatura é enviada.

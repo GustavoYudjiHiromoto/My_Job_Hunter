@@ -69,6 +69,16 @@ export interface Job {
   sources: JobSource[]
 }
 
+export interface GreenhouseImportResult {
+  source: 'greenhouse'
+  boards_configured: number
+  boards_succeeded: number
+  created: number
+  updated: number
+  total: number
+  errors: Array<{ board_token: string; message: string }>
+}
+
 export const emptyPreference: Preference = {
   desired_titles: '',
   desired_locations: '',

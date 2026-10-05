@@ -61,3 +61,18 @@ class ImportResult(BaseModel):
     created: int
     updated: int
     total: int
+
+
+class GreenhouseBoardError(BaseModel):
+    board_token: str
+    message: str
+
+
+class GreenhouseImportResult(BaseModel):
+    source: str = "greenhouse"
+    boards_configured: int
+    boards_succeeded: int
+    created: int
+    updated: int
+    total: int
+    errors: list[GreenhouseBoardError] = Field(default_factory=list)

@@ -23,6 +23,7 @@ export default function JobsPanel() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [importingGreenhouse, setImportingGreenhouse] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -56,15 +57,43 @@ export default function JobsPanel() {
     }
   }
 
+  async function importGreenhouse() {
+    setImportingGreenhouse(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await api.importGreenhouse()
+      await loadJobs()
+      setMessage(
+        'Greenhouse: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
+        result.total + ' vagas de ' + result.boards_succeeded + '/' + result.boards_configured + ' boards',
+      )
+      if (result.errors.length > 0) {
+        setError(result.errors.map((item) => item.board_token + ': ' + item.message).join(' · '))
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Erro ao importar vagas do Greenhouse.')
+    } finally {
+      setImportingGreenhouse(false)
+    }
+  }
+
   return (
     <section className="jobs-section" id="jobs">
       <div className="jobs-intro">
-        <div><p className="eyebrow">M2 · DADOS DE DEMONSTRAÇÃO</p><h2>Vagas em um só lugar.</h2><p>Uma lista simples para validar como as oportunidades serão organizadas. Os exemplos são fictícios.</p></div>
-        <button className="button primary" type="button" onClick={importFixture} disabled={importing}>
-          {importing ? 'Importando…' : 'Carregar vagas de demonstração'} <span>↓</span>
-        </button>
+        <div><p className="eyebrow">M3 · FONTES DE VAGAS</p><h2>Vagas em um só lugar.</h2><p>Veja anúncios dos boards configurados e exemplos fictícios para demonstração.</p></div>
+        <div className="job-actions">
+          <button className="button primary" type="button" onClick={importGreenhouse} disabled={importingGreenhouse}>
+            {importingGreenhouse ? 'Consultando Greenhouse…' : 'Importar Greenhouse'} <span>↗</span>
+          </button>
+          <button className="button secondary" type="button" onClick={importFixture} disabled={importing}>
+            {importing ? 'Importando…' : 'Carregar demonstração'} <span>↓</span>
+          </button>
+          <small>Configure GREENHOUSE_BOARDS no ambiente do backend.</small>
+        </div>
       </div>
-      {(error || message) && <div className={error ? 'feedback error' : 'feedback success'} role="status">{error || message}</div>}
+      {message && <div className="feedback success" role="status">{message}</div>}
+      {error && <div className="feedback error" role="alert">{error}</div>}
       {loading ? <p className="jobs-empty">Carregando vagas…</p> : jobs.length === 0 ? (
         <div className="jobs-empty"><span>✳</span><h3>A lista está pronta para receber vagas.</h3><p>Carregue os exemplos para ver o contrato M2 funcionando de ponta a ponta.</p></div>
       ) : (
@@ -72,7 +101,7 @@ export default function JobsPanel() {
           {jobs.map((job) => {
             const source = job.sources[0]
             return <article className="job-card" key={job.id}>
-              <div className="job-card-top"><span className="demo-badge">DEMONSTRAÇÃO</span><span className={job.status === 'open' ? 'job-status open' : 'job-status'}>{job.status === 'open' ? 'Aberta' : job.status === 'closed' ? 'Encerrada' : 'Status desconhecido'}</span></div>
+              <div className="job-card-top"><span className={source.source === 'fixture' ? 'demo-badge' : 'demo-badge greenhouse-badge'}>{source.source === 'fixture' ? 'DEMONSTRAÇÃO' : 'GREENHOUSE'}</span><span className={job.status === 'open' ? 'job-status open' : 'job-status'}>{job.status === 'open' ? 'Aberta' : job.status === 'closed' ? 'Encerrada' : 'Status desconhecido'}</span></div>
               <div className="job-card-main"><div><h3>{job.title}</h3><p className="job-company">{job.company}</p></div><a className="source-link" href={source.source_url} target="_blank" rel="noreferrer">Ver origem ↗</a></div>
               <div className="job-meta">
                 {job.location && <span>⌖ {job.location}</span>}

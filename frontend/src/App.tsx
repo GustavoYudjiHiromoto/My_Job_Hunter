@@ -165,7 +165,7 @@ export default function App() {
         </aside>
       </div>
       <JobsPanel />
-      <footer className="footer"><span>job hunter <b>·</b> M0 + M2</span><span>Feito para encontrar o próximo passo.</span></footer>
+      <footer className="footer"><span>job hunter <b>·</b> M0 + M3</span><span>Feito para encontrar o próximo passo.</span></footer>
     </main>
   )
 }
