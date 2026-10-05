@@ -9,6 +9,7 @@ venv/
 htmlcov/
 *.db
 *.sqlite3
+*.import.lock
 node_modules/
 dist/
 .vite/

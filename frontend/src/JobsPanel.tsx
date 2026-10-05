@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from './api'
-import type { Job, JobRecommendation, RecommendationFilters } from './types'
+import type { ImportRun, Job, JobRecommendation, RecommendationFilters } from './types'
 
 function salaryLabel(job: Job) {
   if (job.salary_min == null && job.salary_max == null) return 'Remuneração não informada'
@@ -23,8 +23,21 @@ function sourceLabel(source: string) {
   return source === 'fixture' ? 'DEMONSTRAÇÃO' : source.toUpperCase()
 }
 
+function importStatus(status: ImportRun['status']) {
+  return ({
+    pending: 'aguardando',
+    running: 'em andamento',
+    succeeded: 'concluída',
+    partial: 'parcial',
+    failed: 'falhou',
+    skipped: 'ignorada: outra coleta estava ativa',
+    interrupted: 'interrompida',
+  })[status]
+}
+
 export default function JobsPanel() {
   const [recommendations, setRecommendations] = useState<JobRecommendation[]>([])
+  const [latestRun, setLatestRun] = useState<ImportRun | null>(null)
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [importingGreenhouse, setImportingGreenhouse] = useState(false)
@@ -48,9 +61,36 @@ export default function JobsPanel() {
     }
   }, [])
 
+  const loadLatestRun = useCallback(async () => {
+    try {
+      setLatestRun(await api.latestImportRun())
+    } catch {
+      setLatestRun(null)
+    }
+  }, [])
+
   useEffect(() => {
     void loadRecommendations({})
   }, [loadRecommendations])
+
+  useEffect(() => {
+    void loadLatestRun()
+  }, [loadLatestRun])
+
+  useEffect(() => {
+    function refreshWhenVisible() {
+      if (document.visibilityState === 'visible') {
+        void loadLatestRun()
+        void loadRecommendations()
+      }
+    }
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [loadLatestRun, loadRecommendations])
 
   async function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -87,6 +127,7 @@ export default function JobsPanel() {
     try {
       const result = await api.importGreenhouse()
       await loadRecommendations()
+      await loadLatestRun()
       setMessage(
         'Greenhouse: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
         result.total + ' vagas de ' + result.boards_succeeded + '/' + result.boards_configured + ' boards',
@@ -108,6 +149,7 @@ export default function JobsPanel() {
     try {
       const result = await api.importLever()
       await loadRecommendations()
+      await loadLatestRun()
       setMessage(
         'Lever: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
         result.total + ' vagas de ' + result.sites_succeeded + '/' + result.sites_configured + ' sites',
@@ -139,6 +181,12 @@ export default function JobsPanel() {
           <small>Configure GREENHOUSE_BOARDS e LEVER_SITES no ambiente do backend.</small>
         </div>
       </div>
+      {latestRun && <div className="import-run-summary" aria-label="Última coleta">
+        <div><strong>Última coleta #{latestRun.id}</strong><span>{importStatus(latestRun.status)} · {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(latestRun.started_at))}</span></div>
+        <span>{latestRun.created} novas · {latestRun.updated} atualizadas · {latestRun.total} vagas</span>
+        {latestRun.sources.map((item) => <span key={item.source + item.scope} className={item.status === 'failed' ? 'source-run failed' : 'source-run'}>{item.source} / {item.scope}: {item.status === 'succeeded' ? 'ok' : item.status === 'failed' ? 'falhou' : 'pendente'}</span>)}
+        {latestRun.error && <span className="source-run failed">{latestRun.error}</span>}
+      </div>}
       {message && <div className="feedback success" role="status">{message}</div>}
       {error && <div className="feedback error" role="alert">{error}</div>}
       <form className="recommendation-filters" onSubmit={(event) => void applyFilters(event)}>

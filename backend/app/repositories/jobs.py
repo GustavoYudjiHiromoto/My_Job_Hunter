@@ -1,11 +1,12 @@
 import re
 import unicodedata
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Job, JobSource
+from app.models import Job, JobSource, JobSourceObservation
 from app.schemas.jobs import NormalizedJob
 
 JOB_FIELDS = (
@@ -24,7 +25,7 @@ JOB_FIELDS = (
 )
 
 
-def import_jobs(db: Session, jobs: list[NormalizedJob]) -> tuple[int, int]:
+def import_jobs(db: Session, jobs: list[NormalizedJob], commit: bool = True) -> tuple[int, int]:
     created = 0
     updated = 0
     existing_jobs = list(db.scalars(select(Job).options(selectinload(Job.sources))).unique().all())
@@ -82,8 +83,75 @@ def import_jobs(db: Session, jobs: list[NormalizedJob]) -> tuple[int, int]:
             source_record.original_payload = normalized.original_payload
             updated += 1
 
-    db.commit()
+    if commit:
+        db.commit()
     return created, updated
+
+
+def reconcile_source_snapshot(
+    db: Session,
+    source: str,
+    scope: str,
+    jobs: list[NormalizedJob],
+    import_run_id: int,
+    collected_at: datetime,
+) -> None:
+    """Update source observations and conservatively close jobs after two misses."""
+    db.flush()
+    observed_ids = {job.external_id for job in jobs}
+    source_records = list(db.scalars(select(JobSource).where(JobSource.source == source)).all())
+    affected_job_ids: set[int] = set()
+
+    for source_record in source_records:
+        record_scope = source_record.external_id.partition(":")[0]
+        if record_scope != scope:
+            continue
+        affected_job_ids.add(source_record.job_id)
+        observation = db.scalar(
+            select(JobSourceObservation).where(JobSourceObservation.job_source_id == source_record.id)
+        )
+        if observation is None:
+            observation = JobSourceObservation(
+                job_source_id=source_record.id,
+                scope=scope,
+                last_seen_at=None,
+                missed_complete_runs=0,
+                is_active=True,
+            )
+            db.add(observation)
+
+        observation.scope = scope
+        observation.last_import_run_id = import_run_id
+        if source_record.external_id in observed_ids:
+            observation.last_seen_at = collected_at
+            observation.missed_complete_runs = 0
+            observation.is_active = True
+        else:
+            observation.missed_complete_runs += 1
+            if observation.missed_complete_runs >= 2:
+                observation.is_active = False
+
+    db.flush()
+    for job_id in affected_job_ids:
+        job = db.get(Job, job_id)
+        if job is None:
+            continue
+        records = list(db.scalars(select(JobSource).where(JobSource.job_id == job_id)).all())
+        observations = {
+            record.id: db.scalar(
+                select(JobSourceObservation).where(JobSourceObservation.job_source_id == record.id)
+            )
+            for record in records
+        }
+        # Origens sem monitoramento permanecem potencialmente ativas; fixtures são demonstrações.
+        if any(
+            record.source != "fixture"
+            and (observations[record.id] is None or observations[record.id].is_active)
+            for record in records
+        ):
+            job.status = "open"
+        else:
+            job.status = "closed"
 
 
 def _normalize_text(value: str | None) -> str:
@@ -148,6 +216,9 @@ def _fill_missing_job_fields(job: Job, normalized: NormalizedJob) -> None:
     for field in JOB_FIELDS:
         current = getattr(job, field)
         incoming = getattr(normalized, field)
+        if field == "status" and incoming == "open":
+            job.status = "open"
+            continue
         if current is None or current == "" or (field == "status" and current == "unknown"):
             if incoming is not None and incoming != "":
                 setattr(job, field, incoming)

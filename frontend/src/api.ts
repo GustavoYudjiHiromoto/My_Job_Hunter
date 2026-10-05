@@ -1,4 +1,4 @@
-import type { Education, Experience, GreenhouseImportResult, Job, JobRecommendation, LeverImportResult, Preference, ProfessionalProfile, RecommendationFilters } from './types'
+import type { Education, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, Preference, ProfessionalProfile, RecommendationFilters } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -36,6 +36,13 @@ export const api = {
       return response.json() as Promise<JobRecommendation[]>
     })
   },
+  latestImportRun: () => fetch('/api/jobs/import-runs/latest').then(async (response) => {
+    if (!response.ok) throw new Error('Não foi possível consultar o histórico de coletas.')
+    const result: unknown = await response.json()
+    return result && typeof result === 'object' && 'id' in result && 'started_at' in result
+      ? result as ImportRun
+      : null
+  }),
   importFixture: () => fetch('/api/jobs/import-fixture', { method: 'POST' }).then(async (response) => {
     if (!response.ok) throw new Error('Não foi possível importar as vagas de demonstração.')
     return response.json() as Promise<{ created: number; updated: number; total: number }>

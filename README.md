@@ -44,7 +44,7 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2/M3/M4/M5/M6: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes e recomendações ranqueadas com análise determinística de compatibilidade. IA, notificações e candidatura não estão implementadas.
+M0/M1/M2/M3/M4/M5/M6/M7: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes, recomendações ranqueadas com análise determinística de compatibilidade e histórico de coletas. IA, notificações e candidatura não estão implementadas.
 
 ## M2: vagas de demonstração
 
@@ -82,6 +82,33 @@ Configure os identificadores de sites separados por vírgula e a região global 
 - POST /api/jobs/import-lever: coleta e importa os sites configurados, informando falhas parciais.
 - Somente GET na lista pública é usado. O endpoint de candidatura do Lever não é chamado.
 - A API não oferece busca textual geral; a coleta abrange os sites configurados.
+
+## M7: monitoramento e histórico de coletas
+
+O comando abaixo executa uma coleta das fontes configuradas e imprime uma linha JSON com o resultado. Execute-o a partir da pasta `backend`:
+
+    ..\.venv\Scripts\python.exe -m app.cli import-jobs --source all
+
+`--source` aceita `all`, `greenhouse` ou `lever`. Códigos de saída: 0 sucesso, 1 falha, 2 parcial, 3 execução ignorada porque outra estava ativa e 4 configuração ausente ou inválida. Os resultados são persistidos em `import_runs` e `import_run_sources`; a API `GET /api/jobs/import-runs/latest` e a interface mostram o resumo da última tentativa.
+
+O CLI e os endpoints de importação Greenhouse/Lever compartilham uma trava local junto ao arquivo SQLite. Uma execução concorrente é registrada como `skipped`. Cada board/site é processado isoladamente; uma fonte que falha não invalida as fontes concluídas.
+
+Uma vaga ausente é considerada fechada para aquela origem somente após duas coletas completas consecutivas do respectivo board/site. A vaga consolidada permanece aberta enquanto existir alguma origem ativa ou ainda não monitorada. Falhas e boards/sites não consultados não contam como ausência. Registros de demonstração não participam da reconciliação.
+
+### Agendar no Windows
+
+1. Configure `GREENHOUSE_BOARDS`, `LEVER_SITES`, `LEVER_REGION` e, se necessário, `DATABASE_URL` como variáveis persistentes do mesmo usuário do Windows que executará a tarefa. Uma variável definida somente com `$env:` em uma janela PowerShell não será herdada por execuções futuras.
+2. Abra o Agendador de Tarefas e selecione **Criar Tarefa**.
+3. Na guia **Geral**, escolha a conta com acesso ao projeto e ao banco SQLite.
+4. Em **Disparadores**, crie uma execução diária e configure repetição a cada 6 horas.
+5. Em **Ações**, selecione **Iniciar um programa**:
+   - Programa/script: caminho absoluto para `.venv\Scripts\python.exe`;
+   - Argumentos: `-m app.cli import-jobs --source all`;
+   - Iniciar em: caminho absoluto da pasta `backend`.
+6. Nas configurações, escolha **Não iniciar uma nova instância** se a tarefa já estiver em execução (`IgnoreNew`).
+7. Execute a tarefa manualmente uma vez e confira o histórico de coletas no Job Hunter.
+
+Se a máquina estiver desligada no horário, pode-se habilitar a opção para iniciar a tarefa assim que possível após um horário agendado ter sido perdido. As políticas de instâncias do Agendador estão documentadas pela [Microsoft](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-multipleinstancespolicy-settingstype-element).
 
 ## M4: deduplicação entre fontes
 

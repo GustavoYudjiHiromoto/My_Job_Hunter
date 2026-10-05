@@ -132,6 +132,10 @@ def test_lever_import_reports_partial_site_errors(client, monkeypatch):
     stored = client.get("/api/jobs").json()
     assert len(stored) == 1
     assert stored[0]["sources"][0]["source"] == "lever"
+    latest = client.get("/api/jobs/import-runs/latest").json()
+    assert latest["status"] == "partial"
+    assert latest["total"] == 1
+    assert {source["status"] for source in latest["sources"]} == {"succeeded", "failed"}
 
 
 def test_lever_import_requires_site_configuration_and_valid_region(client, monkeypatch):
@@ -425,3 +429,148 @@ def test_deduplication_leaves_ambiguous_matches_separate(client):
     jobs = client.get("/api/jobs").json()
     matching = [job for job in jobs if job["title"] == "Pessoa Desenvolvedora Backend Júnior"]
     assert len(matching) == 3
+
+
+def test_source_listing_closes_after_two_complete_absences_and_reopens(client, monkeypatch):
+    from app.adapters.greenhouse import GreenhouseSourceError
+    from app.schemas.jobs import NormalizedJob
+
+    class SequencedAdapter:
+        attempts = 0
+
+        def __init__(self, board_token):
+            self.board_token = board_token
+
+        def fetch_jobs(self):
+            type(self).attempts += 1
+            if type(self).attempts in (1, 5):
+                return [
+                    NormalizedJob(
+                        source="greenhouse",
+                        external_id="acme:job-1",
+                        title="Backend Developer",
+                        company="Acme",
+                        source_url="https://boards.greenhouse.io/acme/jobs/1",
+                    )
+                ]
+            if type(self).attempts == 2:
+                raise GreenhouseSourceError("Falha temporária.")
+            return []
+
+    monkeypatch.setattr("app.api.routes.jobs.get_greenhouse_board_tokens", lambda: ["acme"])
+    monkeypatch.setattr("app.services.jobs.GreenhouseAdapter", SequencedAdapter)
+
+    assert client.post("/api/jobs/import-greenhouse").json()["boards_succeeded"] == 1
+    assert client.get("/api/jobs").json()[0]["status"] == "open"
+
+    failed = client.post("/api/jobs/import-greenhouse").json()
+    assert len(failed["errors"]) == 1
+    assert client.get("/api/jobs").json()[0]["status"] == "open"
+
+    client.post("/api/jobs/import-greenhouse")
+    assert client.get("/api/jobs").json()[0]["status"] == "open"
+
+    client.post("/api/jobs/import-greenhouse")
+    assert client.get("/api/jobs").json()[0]["status"] == "closed"
+
+    client.post("/api/jobs/import-greenhouse")
+    assert client.get("/api/jobs").json()[0]["status"] == "open"
+
+
+def test_job_remains_open_until_all_monitored_sources_confirm_absence(client, monkeypatch):
+    from app.schemas.jobs import NormalizedJob
+
+    class FakeGreenhouse:
+        attempts = 0
+
+        def __init__(self, board_token):
+            pass
+
+        def fetch_jobs(self):
+            type(self).attempts += 1
+            if type(self).attempts == 1:
+                return [
+                    NormalizedJob(
+                        source="greenhouse",
+                        external_id="acme:gh-1",
+                        title="Backend Engineer",
+                        company="Acme",
+                        location="São Paulo",
+                        source_url="https://boards.greenhouse.io/acme/jobs/1",
+                    )
+                ]
+            return []
+
+    class FakeLever:
+        attempts = 0
+
+        def __init__(self, site, region):
+            pass
+
+        def fetch_jobs(self):
+            type(self).attempts += 1
+            if type(self).attempts == 1:
+                return [
+                    NormalizedJob(
+                        source="lever",
+                        external_id="acme:lever-1",
+                        title="Backend Engineer",
+                        company="Acme",
+                        location="Sao Paulo",
+                        source_url="https://jobs.lever.co/acme/1",
+                    )
+                ]
+            return []
+
+    monkeypatch.setattr("app.api.routes.jobs.get_greenhouse_board_tokens", lambda: ["acme"])
+    monkeypatch.setattr("app.services.jobs.GreenhouseAdapter", FakeGreenhouse)
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_sites", lambda: ["acme"])
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_region", lambda: "global")
+    monkeypatch.setattr("app.services.jobs.LeverAdapter", FakeLever)
+
+    client.post("/api/jobs/import-greenhouse")
+    client.post("/api/jobs/import-lever")
+    assert len(client.get("/api/jobs").json()) == 1
+
+    client.post("/api/jobs/import-greenhouse")
+    client.post("/api/jobs/import-greenhouse")
+    assert client.get("/api/jobs").json()[0]["status"] == "open"
+
+    client.post("/api/jobs/import-lever")
+    assert client.get("/api/jobs").json()[0]["status"] == "open"
+    client.post("/api/jobs/import-lever")
+    assert client.get("/api/jobs").json()[0]["status"] == "closed"
+
+
+def test_next_run_marks_abandoned_running_run_as_interrupted(client, monkeypatch):
+    from sqlalchemy.orm import Session
+
+    from app.main import engine
+    from app.models import ImportRun, ImportRunSource
+
+    with Session(engine) as db:
+        abandoned = ImportRun(
+            requested_source="all",
+            status="running",
+            sources=[ImportRunSource(source="greenhouse", scope="acme", status="pending")],
+        )
+        db.add(abandoned)
+        db.commit()
+        abandoned_id = abandoned.id
+
+    class EmptyAdapter:
+        def __init__(self, board_token):
+            pass
+
+        def fetch_jobs(self):
+            return []
+
+    monkeypatch.setattr("app.api.routes.jobs.get_greenhouse_board_tokens", lambda: ["acme"])
+    monkeypatch.setattr("app.services.jobs.GreenhouseAdapter", EmptyAdapter)
+    response = client.post("/api/jobs/import-greenhouse")
+    assert response.status_code == 200
+
+    with Session(engine) as db:
+        interrupted = db.get(ImportRun, abandoned_id)
+        assert interrupted.status == "interrupted"
+        assert interrupted.sources[0].status == "failed"

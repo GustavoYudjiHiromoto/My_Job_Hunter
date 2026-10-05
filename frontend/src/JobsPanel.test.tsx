@@ -78,6 +78,26 @@ describe('recomendações de vagas M5', () => {
           }),
         })
       }
+      if (url === '/api/jobs/import-runs/latest') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 7,
+            requested_source: 'all',
+            status: 'partial',
+            started_at: '2026-10-04T12:00:00Z',
+            finished_at: '2026-10-04T12:01:00Z',
+            created: 3,
+            updated: 1,
+            total: 4,
+            error: null,
+            sources: [
+              { source: 'greenhouse', scope: 'acme', status: 'succeeded', created: 3, updated: 1, total: 4, error: null },
+              { source: 'lever', scope: 'unavailable', status: 'failed', created: 0, updated: 0, total: 0, error: 'HTTP 503' },
+            ],
+          }),
+        })
+      }
       if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
         return Promise.resolve({ ok: true, json: async () => recommendations })
       }
@@ -98,6 +118,14 @@ describe('recomendações de vagas M5', () => {
     expect(screen.getByText('82%')).toBeInTheDocument()
     expect(screen.getByText('Habilidade Python encontrada.')).toBeInTheDocument()
     expect(screen.getByText('Faixa salarial anunciada está fora da preferência.')).toBeInTheDocument()
+  })
+
+  it('mostra o estado agregado e o resultado de cada fonte da última coleta', async () => {
+    render(<JobsPanel />)
+
+    expect(await screen.findByLabelText('Última coleta')).toHaveTextContent('parcial')
+    expect(screen.getByLabelText('Última coleta')).toHaveTextContent('greenhouse / acme: ok')
+    expect(screen.getByLabelText('Última coleta')).toHaveTextContent('lever / unavailable: falhou')
   })
 
   it('importa o fixture e informa o resultado', async () => {

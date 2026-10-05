@@ -71,6 +71,9 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .job-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:9px;max-width:430px}
 .job-actions small{flex-basis:100%;text-align:right;color:#929990;font-size:9px}
 .greenhouse-badge{background:#e8f0e9;color:#3e7654}
+.import-run-summary{display:flex;align-items:center;flex-wrap:wrap;gap:9px 16px;margin:-5px 0 18px;padding:12px 15px;background:#fff;border:1px solid #eeeee7;border-radius:10px;color:#667168;font-size:10px}
+.import-run-summary>div{display:grid;gap:3px}.import-run-summary>div strong{color:#35473a;font-size:11px}.import-run-summary>div span{color:#858d84}
+.source-run{padding:4px 7px;background:#edf4ee;border-radius:6px;color:#3e7654}.source-run.failed{background:#fae8e1;color:#9e462c}
 .job-source-badges,.job-source-links{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
 .job-source-links{margin-top:12px}
 .recommendation-filters{display:grid;grid-template-columns:120px minmax(150px,1fr) 150px auto auto;align-items:end;gap:10px;margin:0 0 18px;padding:14px;background:#fff;border:1px solid #eeeee7;border-radius:12px}

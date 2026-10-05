@@ -116,6 +116,29 @@ export interface LeverImportResult {
   errors: Array<{ site: string; message: string }>
 }
 
+export interface ImportRunSource {
+  source: 'greenhouse' | 'lever'
+  scope: string
+  status: 'pending' | 'succeeded' | 'failed'
+  created: number
+  updated: number
+  total: number
+  error: string | null
+}
+
+export interface ImportRun {
+  id: number
+  requested_source: 'all' | 'greenhouse' | 'lever'
+  status: 'pending' | 'running' | 'succeeded' | 'partial' | 'failed' | 'skipped' | 'interrupted'
+  started_at: string
+  finished_at: string | null
+  created: number
+  updated: number
+  total: number
+  error: string | null
+  sources: ImportRunSource[]
+}
+
 export const emptyPreference: Preference = {
   desired_titles: '',
   desired_locations: '',

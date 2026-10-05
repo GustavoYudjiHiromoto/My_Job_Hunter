@@ -110,3 +110,30 @@ class LeverImportResult(BaseModel):
     updated: int
     total: int
     errors: list[LeverSiteError] = Field(default_factory=list)
+
+
+class ImportRunSourceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    source: str
+    scope: str
+    status: Literal["pending", "succeeded", "failed"]
+    created: int
+    updated: int
+    total: int
+    error: str | None
+
+
+class ImportRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    requested_source: str
+    status: Literal["pending", "running", "succeeded", "partial", "failed", "skipped", "interrupted"]
+    started_at: datetime
+    finished_at: datetime | None
+    created: int
+    updated: int
+    total: int
+    error: str | None
+    sources: list[ImportRunSourceRead]

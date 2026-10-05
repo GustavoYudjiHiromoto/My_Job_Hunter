@@ -11,11 +11,12 @@ from app.repositories.profile import get_or_create_profile
 from app.schemas.jobs import (
     GreenhouseImportResult,
     ImportResult,
+    ImportRunRead,
     JobRead,
     JobRecommendation,
     LeverImportResult,
 )
-from app.services.jobs import import_from_adapter, import_greenhouse_boards, import_lever_sites
+from app.services.jobs import import_from_adapter, latest_import_run, run_import
 from app.services.matching import rank_jobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -47,6 +48,11 @@ def read_recommendations(
     )
 
 
+@router.get("/import-runs/latest", response_model=ImportRunRead | None)
+def read_latest_import_run(db: Session = Depends(get_db)):
+    return latest_import_run(db)
+
+
 @router.get("/{job_id}", response_model=JobRead)
 def read_job(job_id: int, db: Session = Depends(get_db)):
     job = get_job(db, job_id)
@@ -68,7 +74,18 @@ def import_greenhouse(db: Session = Depends(get_db)):
             status_code=503,
             detail="Configure GREENHOUSE_BOARDS com um ou mais tokens públicos de board.",
         )
-    return import_greenhouse_boards(db, board_tokens)
+    run = run_import(db, "greenhouse", greenhouse_tokens=board_tokens)
+    if run.status == "skipped":
+        raise HTTPException(status_code=409, detail=run.error)
+    sources = [item for item in run.sources if item.source == "greenhouse"]
+    return GreenhouseImportResult(
+        boards_configured=len(sources),
+        boards_succeeded=sum(item.status == "succeeded" for item in sources),
+        created=sum(item.created for item in sources),
+        updated=sum(item.updated for item in sources),
+        total=sum(item.total for item in sources),
+        errors=[{"board_token": item.scope, "message": item.error} for item in sources if item.error],
+    )
 
 
 @router.post("/import-lever", response_model=LeverImportResult)
@@ -82,4 +99,15 @@ def import_lever(db: Session = Depends(get_db)):
     region = get_lever_region()
     if region not in {"global", "eu"}:
         raise HTTPException(status_code=503, detail="Configure LEVER_REGION como 'global' ou 'eu'.")
-    return import_lever_sites(db, sites, region)
+    run = run_import(db, "lever", lever_sites=sites, lever_region=region)
+    if run.status == "skipped":
+        raise HTTPException(status_code=409, detail=run.error)
+    sources = [item for item in run.sources if item.source == "lever"]
+    return LeverImportResult(
+        sites_configured=len(sources),
+        sites_succeeded=sum(item.status == "succeeded" for item in sources),
+        created=sum(item.created for item in sources),
+        updated=sum(item.updated for item in sources),
+        total=sum(item.total for item in sources),
+        errors=[{"site": item.scope, "message": item.error} for item in sources if item.error],
+    )
