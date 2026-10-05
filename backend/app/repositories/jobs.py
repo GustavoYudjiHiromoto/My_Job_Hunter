@@ -25,9 +25,15 @@ JOB_FIELDS = (
 )
 
 
-def import_jobs(db: Session, jobs: list[NormalizedJob], commit: bool = True) -> tuple[int, int]:
+def import_jobs(
+    db: Session,
+    jobs: list[NormalizedJob],
+    commit: bool = True,
+    new_job_ids: set[int] | None = None,
+) -> tuple[int, int]:
     created = 0
     updated = 0
+    new_jobs: list[Job] = []
     existing_jobs = list(db.scalars(select(Job).options(selectinload(Job.sources))).unique().all())
     jobs_by_signature: dict[tuple[str, str, str], list[Job]] = {}
     jobs_by_url: dict[str, list[Job]] = {}
@@ -51,6 +57,7 @@ def import_jobs(db: Session, jobs: list[NormalizedJob], commit: bool = True) -> 
             else:
                 job = Job(**{field: getattr(normalized, field) for field in JOB_FIELDS})
                 existing_jobs.append(job)
+                new_jobs.append(job)
                 created += 1
 
             source_record = JobSource(
@@ -83,6 +90,9 @@ def import_jobs(db: Session, jobs: list[NormalizedJob], commit: bool = True) -> 
             source_record.original_payload = normalized.original_payload
             updated += 1
 
+    if new_job_ids is not None:
+        db.flush()
+        new_job_ids.update(job.id for job in new_jobs if job.id is not None)
     if commit:
         db.commit()
     return created, updated

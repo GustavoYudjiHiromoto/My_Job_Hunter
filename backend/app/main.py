@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import models  # noqa: F401 - registra os modelos no metadata.
 from app.api.routes.jobs import router as jobs_router
+from app.api.routes.notifications import router as notifications_router
 from app.api.routes.profile import router as profile_router
 from app.db.base import Base
 from app.db.session import engine
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 app.include_router(profile_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
 
 
 @app.get("/health", tags=["health"])

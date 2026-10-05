@@ -15,6 +15,7 @@ from app.models import ImportRun, ImportRunSource
 from app.repositories.jobs import import_jobs, reconcile_source_snapshot
 from app.schemas.jobs import ImportResult, NormalizedJob
 from app.services.import_lock import ImportAlreadyRunning, import_lock
+from app.services.notifications import EmailNotifier, send_run_notifications
 
 logger = logging.getLogger(__name__)
 RequestedSource = Literal["all", "greenhouse", "lever"]
@@ -129,6 +130,7 @@ def run_import(
     greenhouse_tokens: list[str] | None = None,
     lever_sites: list[str] | None = None,
     lever_region: str | None = None,
+    notifier: EmailNotifier | None = None,
 ) -> ImportRun:
     try:
         lock = import_lock(db)
@@ -150,6 +152,7 @@ def run_import(
         db.commit()
 
         targets = _targets(requested_source, greenhouse_tokens, lever_sites, lever_region)
+        new_job_ids: set[int] = set()
         if not targets:
             run.error = "Nenhuma fonte configurada para esta execução."
             return _finish_run(db, run)
@@ -165,7 +168,8 @@ def run_import(
             db.commit()
             try:
                 jobs = target.fetch()
-                created, updated = import_jobs(db, jobs, commit=False)
+                source_new_job_ids: set[int] = set()
+                created, updated = import_jobs(db, jobs, commit=False, new_job_ids=source_new_job_ids)
                 reconcile_source_snapshot(
                     db,
                     target.source,
@@ -180,6 +184,7 @@ def run_import(
                 result.updated = updated
                 result.total = len(jobs)
                 db.commit()
+                new_job_ids.update(source_new_job_ids)
             except (GreenhouseSourceError, LeverSourceError) as error:
                 db.rollback()
                 result = db.get(ImportRunSource, result.id)
@@ -194,7 +199,12 @@ def run_import(
                 db.commit()
 
         run = _load_run(db, run.id)
-        return _finish_run(db, run)
+        run = _finish_run(db, run)
+        try:
+            send_run_notifications(db, run, new_job_ids, notifier)
+        except Exception:
+            logger.exception("Falha ao preparar a notificação do ImportRun %s", run.id)
+        return _load_run(db, run.id)
     except Exception:
         db.rollback()
         raise

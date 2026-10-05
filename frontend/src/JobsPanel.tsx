@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from './api'
-import type { ImportRun, Job, JobRecommendation, RecommendationFilters } from './types'
+import type { EmailNotification, ImportRun, Job, JobRecommendation, NotificationSettings, RecommendationFilters } from './types'
 
 function salaryLabel(job: Job) {
   if (job.salary_min == null && job.salary_max == null) return 'Remuneração não informada'
@@ -48,6 +48,11 @@ export default function JobsPanel() {
   const [workplaceType, setWorkplaceType] = useState('')
   const [minScore, setMinScore] = useState('0')
   const [includeExcluded, setIncludeExcluded] = useState(true)
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false })
+  const [notificationHistory, setNotificationHistory] = useState<EmailNotification[]>([])
+  const [notificationScore, setNotificationScore] = useState('')
+  const [savingNotifications, setSavingNotifications] = useState(false)
+  const [notificationMessage, setNotificationMessage] = useState('')
   const appliedFilters = useRef<RecommendationFilters>({})
 
   const loadRecommendations = useCallback(async (filters: RecommendationFilters = appliedFilters.current) => {
@@ -69,6 +74,17 @@ export default function JobsPanel() {
     }
   }, [])
 
+  const loadNotifications = useCallback(async () => {
+    try {
+      const [settings, history] = await Promise.all([api.notificationSettings(), api.notificationHistory()])
+      setNotificationSettings(settings)
+      setNotificationScore(settings.minimum_score == null ? '' : String(settings.minimum_score))
+      setNotificationHistory(history)
+    } catch (reason) {
+      setNotificationMessage(reason instanceof Error ? reason.message : 'Erro ao carregar alertas.')
+    }
+  }, [])
+
   useEffect(() => {
     void loadRecommendations({})
   }, [loadRecommendations])
@@ -78,10 +94,15 @@ export default function JobsPanel() {
   }, [loadLatestRun])
 
   useEffect(() => {
+    void loadNotifications()
+  }, [loadNotifications])
+
+  useEffect(() => {
     function refreshWhenVisible() {
       if (document.visibilityState === 'visible') {
         void loadLatestRun()
         void loadRecommendations()
+        void loadNotifications()
       }
     }
     window.addEventListener('focus', refreshWhenVisible)
@@ -90,7 +111,27 @@ export default function JobsPanel() {
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [loadLatestRun, loadRecommendations])
+  }, [loadLatestRun, loadRecommendations, loadNotifications])
+
+  async function saveNotifications(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSavingNotifications(true)
+    setNotificationMessage('')
+    try {
+      const settings = await api.saveNotificationSettings({
+        enabled: notificationSettings.enabled,
+        recipient_email: notificationSettings.recipient_email.trim(),
+        minimum_score: notificationScore === '' ? null : Number(notificationScore),
+      })
+      setNotificationSettings(settings)
+      setNotificationScore(settings.minimum_score == null ? '' : String(settings.minimum_score))
+      setNotificationMessage('Configurações de alertas salvas.')
+    } catch (reason) {
+      setNotificationMessage(reason instanceof Error ? reason.message : 'Erro ao salvar configurações.')
+    } finally {
+      setSavingNotifications(false)
+    }
+  }
 
   async function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,6 +169,7 @@ export default function JobsPanel() {
       const result = await api.importGreenhouse()
       await loadRecommendations()
       await loadLatestRun()
+      await loadNotifications()
       setMessage(
         'Greenhouse: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
         result.total + ' vagas de ' + result.boards_succeeded + '/' + result.boards_configured + ' boards',
@@ -150,6 +192,7 @@ export default function JobsPanel() {
       const result = await api.importLever()
       await loadRecommendations()
       await loadLatestRun()
+      await loadNotifications()
       setMessage(
         'Lever: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
         result.total + ' vagas de ' + result.sites_succeeded + '/' + result.sites_configured + ' sites',
@@ -187,6 +230,18 @@ export default function JobsPanel() {
         {latestRun.sources.map((item) => <span key={item.source + item.scope} className={item.status === 'failed' ? 'source-run failed' : 'source-run'}>{item.source} / {item.scope}: {item.status === 'succeeded' ? 'ok' : item.status === 'failed' ? 'falhou' : 'pendente'}</span>)}
         {latestRun.error && <span className="source-run failed">{latestRun.error}</span>}
       </div>}
+      <section className="notification-panel" aria-labelledby="notification-heading">
+        <div><p className="eyebrow">M8 · ALERTAS</p><h3 id="notification-heading">Receba novas vagas por e-mail.</h3><p>O alerta considera apenas vagas novas dessa coleta que atinjam o score configurado.</p></div>
+        <form className="notification-form" onSubmit={(event) => void saveNotifications(event)}>
+          <label className="notification-toggle"><input type="checkbox" checked={notificationSettings.enabled} onChange={(event) => setNotificationSettings({ ...notificationSettings, enabled: event.target.checked })} />Ativar alertas por e-mail</label>
+          <label>E-mail de destino<input type="email" maxLength={254} value={notificationSettings.recipient_email} onChange={(event) => setNotificationSettings({ ...notificationSettings, recipient_email: event.target.value })} placeholder="voce@exemplo.com" /></label>
+          <label>Score mínimo (0–100)<input type="number" min="0" max="100" value={notificationScore} onChange={(event) => setNotificationScore(event.target.value)} placeholder="Defina o limite" /></label>
+          <button className="button secondary" type="submit" disabled={savingNotifications}>{savingNotifications ? 'Salvando…' : 'Salvar alertas'}</button>
+        </form>
+        <p className="smtp-hint">{notificationSettings.smtp_configured ? 'SMTP configurado no backend.' : 'Para envio, configure SMTP_HOST, SMTP_PORT, SMTP_FROM e opcionalmente SMTP_USERNAME/SMTP_PASSWORD no ambiente do backend. As credenciais não são exibidas na interface.'}</p>
+        {notificationMessage && <p className="notification-message" role="status">{notificationMessage}</p>}
+        <div className="notification-history"><strong>Histórico de envios</strong>{notificationHistory.length === 0 ? <p>Nenhum e-mail enviado ainda.</p> : notificationHistory.map((item) => <div className="notification-entry" key={item.id}><span>{item.status === 'sent' ? 'Enviado' : item.status === 'failed' ? 'Falhou' : item.status} · {item.jobs.length} vaga(s) · score mínimo {item.minimum_score}</span><small>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(item.created_at))} · {item.recipient_email}</small>{item.error && <small className="notification-error">{item.error}</small>}<ul>{item.jobs.map((job) => <li key={job.job_id}><a href={job.source_url} target="_blank" rel="noreferrer">{job.title} — {job.company}</a> ({job.score}%)</li>)}</ul></div>)}</div>
+      </section>
       {message && <div className="feedback success" role="status">{message}</div>}
       {error && <div className="feedback error" role="alert">{error}</div>}
       <form className="recommendation-filters" onSubmit={(event) => void applyFilters(event)}>

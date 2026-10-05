@@ -44,6 +44,8 @@ describe('recomendações de vagas M5', () => {
 
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
+      if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
       if (url === '/api/jobs/import-fixture' && options?.method === 'POST') {
         return Promise.resolve({
           ok: true,

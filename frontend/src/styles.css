@@ -110,6 +110,22 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .jobs-empty>span{display:block;font-size:21px;color:#71937a;margin-bottom:8px}
 .jobs-empty h3{font:700 15px Arial,sans-serif;color:#35473a;margin:0 0 7px}
 .jobs-empty p{margin:0}
+.notification-panel{display:grid;grid-template-columns:minmax(210px,.8fr) minmax(0,1.2fr);gap:18px 28px;margin:0 0 18px;padding:19px 21px;background:#fff;border:1px solid #eeeee7;border-radius:12px}
+.notification-panel h3{margin:0 0 7px;font:700 16px Arial,sans-serif;color:#35473a}
+.notification-panel>div:first-child p:not(.eyebrow){margin:0;color:#788078;font-size:11px;line-height:1.55}
+.notification-form{display:grid;grid-template-columns:1fr 1fr;align-items:end;gap:11px}
+.notification-form label{font-size:10px}
+.notification-form .notification-toggle{display:flex;align-items:center;gap:8px;grid-column:1/-1}
+.notification-toggle input{width:14px;height:14px;accent-color:var(--green)}
+.notification-form .button{justify-self:start}
+.smtp-hint,.notification-message{grid-column:1/-1;margin:0;color:#858d84;font-size:10px;line-height:1.5}
+.notification-message{color:#376349}
+.notification-history{grid-column:1/-1;border-top:1px solid #f0f0ea;padding-top:12px}
+.notification-history>strong{font-size:11px;color:#536257}
+.notification-history>p{margin:7px 0 0;font-size:10px;color:#929990}
+.notification-entry{display:grid;gap:4px;margin-top:10px;padding:10px;background:#fafbf8;border-radius:8px;font-size:10px;color:#58625a}
+.notification-entry>span{font-weight:700}.notification-entry small{color:#858d84}.notification-entry ul{margin:3px 0 0;padding-left:16px;line-height:1.6}.notification-entry a{color:var(--green)}.notification-entry .notification-error{color:#9e462c}
 @media(max-width:850px){.page-shell{padding:0 24px}.content-grid{grid-template-columns:1fr}.side-column{grid-row:2}.hero-orbit{margin-right:20px;transform:scale(.82)}}
 @media(max-width:850px){.recommendation-filters{grid-template-columns:1fr 1fr}.recommendation-filters .filter-check{padding-bottom:0}}
 @media(max-width:560px){.page-shell{padding:0 16px}.topbar{height:62px}.topnav{gap:12px;margin-right:12px}.topnav a{font-size:11px}.phase-label{display:none}.hero{min-height:265px;padding:35px 4px}.hero-orbit{display:none}h1{font-size:40px}.panel{padding:21px 17px}.form-grid{grid-template-columns:1fr}.full-width{grid-column:auto}.footer{gap:15px;flex-direction:column}.aside-intro{margin-left:0}.jobs-intro{align-items:flex-start;flex-direction:column}.job-actions{justify-content:flex-start}.job-actions small{text-align:left}.recommendation-filters{grid-template-columns:1fr}.jobs-list{grid-template-columns:1fr}.match-explanation{grid-template-columns:1fr}.job-card-bottom{align-items:flex-start;flex-direction:column}}
+@media(max-width:850px){.notification-panel{grid-template-columns:1fr}}

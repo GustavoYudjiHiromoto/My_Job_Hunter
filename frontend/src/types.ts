@@ -139,6 +139,25 @@ export interface ImportRun {
   sources: ImportRunSource[]
 }
 
+export interface NotificationSettings {
+  enabled: boolean
+  recipient_email: string
+  minimum_score: number | null
+  smtp_configured: boolean
+}
+
+export interface EmailNotification {
+  id: number
+  import_run_id: number
+  recipient_email: string
+  minimum_score: number
+  status: 'pending' | 'sending' | 'sent' | 'failed'
+  jobs: Array<{ job_id: number; title: string; company: string; score: number; source_url: string }>
+  error: string | null
+  created_at: string
+  sent_at: string | null
+}
+
 export const emptyPreference: Preference = {
   desired_titles: '',
   desired_locations: '',

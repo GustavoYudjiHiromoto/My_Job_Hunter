@@ -18,7 +18,11 @@ describe('perfil profissional', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve({
       ok: true,
       status: 200,
-      json: async () => url.startsWith('/api/jobs/recommendations') ? [] : url === '/api/jobs' ? [] : profile,
+      json: async () => url === '/api/notifications/settings'
+        ? { enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }
+        : url === '/api/notifications' || url.startsWith('/api/jobs/recommendations') || url === '/api/jobs'
+          ? []
+          : profile,
     })))
   })
 

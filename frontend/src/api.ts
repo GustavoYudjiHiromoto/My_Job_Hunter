@@ -1,4 +1,4 @@
-import type { Education, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, Preference, ProfessionalProfile, RecommendationFilters } from './types'
+import type { Education, EmailNotification, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, NotificationSettings, Preference, ProfessionalProfile, RecommendationFilters } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -42,6 +42,23 @@ export const api = {
     return result && typeof result === 'object' && 'id' in result && 'started_at' in result
       ? result as ImportRun
       : null
+  }),
+  notificationSettings: () => fetch('/api/notifications/settings').then(async (response) => {
+    if (!response.ok) throw new Error('Não foi possível carregar as configurações de alertas.')
+    return response.json() as Promise<NotificationSettings>
+  }),
+  saveNotificationSettings: (data: Pick<NotificationSettings, 'enabled' | 'recipient_email' | 'minimum_score'>) => fetch('/api/notifications/settings', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  }).then(async (response) => {
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(typeof body?.detail === 'string' ? body.detail : 'Não foi possível salvar as configurações de alertas.')
+    }
+    return response.json() as Promise<NotificationSettings>
+  }),
+  notificationHistory: () => fetch('/api/notifications').then(async (response) => {
+    if (!response.ok) throw new Error('Não foi possível carregar o histórico de e-mails.')
+    return response.json() as Promise<EmailNotification[]>
   }),
   importFixture: () => fetch('/api/jobs/import-fixture', { method: 'POST' }).then(async (response) => {
     if (!response.ok) throw new Error('Não foi possível importar as vagas de demonstração.')

@@ -44,7 +44,7 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2/M3/M4/M5/M6/M7: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes, recomendações ranqueadas com análise determinística de compatibilidade e histórico de coletas. IA, notificações e candidatura não estão implementadas.
+M0/M1/M2/M3/M4/M5/M6/M7/M8: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes, recomendações ranqueadas com análise determinística de compatibilidade, histórico de coletas e alertas por e-mail para novas vagas compatíveis. IA adicional, outros canais e candidatura não estão implementados.
 
 ## M2: vagas de demonstração
 
@@ -109,6 +109,21 @@ Uma vaga ausente é considerada fechada para aquela origem somente após duas co
 7. Execute a tarefa manualmente uma vez e confira o histórico de coletas no Job Hunter.
 
 Se a máquina estiver desligada no horário, pode-se habilitar a opção para iniciar a tarefa assim que possível após um horário agendado ter sido perdido. As políticas de instâncias do Agendador estão documentadas pela [Microsoft](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-multipleinstancespolicy-settingstype-element).
+
+## M8: alertas por e-mail
+
+Os alertas são opcionais e desligados inicialmente. Na seção de vagas, informe o destinatário e o score mínimo (0–100) para ativá-los. Após uma coleta Greenhouse/Lever bem-sucedida ou parcial, o Job Hunter envia um resumo apenas das vagas novas, abertas, não excluídas pelas preferências e com score igual ou superior ao limite configurado. Atualizações e duplicatas já conhecidas não geram um novo alerta. Uma falha de envio fica no histórico de notificações e não altera o resultado da coleta. Não há repetição automática de e-mails cujo resultado ficou ambíguo.
+
+Configure o SMTP no ambiente do backend; a senha nunca é retornada pela API nem incluída no histórico:
+
+    $env:SMTP_HOST = "smtp.example.com"
+    $env:SMTP_PORT = "587"
+    $env:SMTP_SECURITY = "starttls"
+    $env:SMTP_FROM = "job-hunter@example.com"
+    $env:SMTP_USERNAME = "usuario" # opcional
+    $env:SMTP_PASSWORD = "senha-de-aplicativo" # opcional, junto com SMTP_USERNAME
+
+`SMTP_SECURITY` aceita `starttls` (padrão) ou `ssl`. Os testes usam um notifier falso e nunca enviam mensagens reais. O primeiro envio real deve ser validado manualmente com SMTP configurado, alertas habilitados, score mínimo explícito e uma coleta controlada.
 
 ## M4: deduplicação entre fontes
 
