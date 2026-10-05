@@ -4,12 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.adapters.fixture import FixtureAdapter
-from app.core.config import get_greenhouse_board_tokens
+from app.core.config import get_greenhouse_board_tokens, get_lever_region, get_lever_sites
 from app.db.session import get_db
 from app.repositories.jobs import get_job, list_jobs
 from app.repositories.profile import get_or_create_profile
-from app.schemas.jobs import GreenhouseImportResult, ImportResult, JobRead, JobRecommendation
-from app.services.jobs import import_from_adapter, import_greenhouse_boards
+from app.schemas.jobs import (
+    GreenhouseImportResult,
+    ImportResult,
+    JobRead,
+    JobRecommendation,
+    LeverImportResult,
+)
+from app.services.jobs import import_from_adapter, import_greenhouse_boards, import_lever_sites
 from app.services.matching import rank_jobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -63,3 +69,17 @@ def import_greenhouse(db: Session = Depends(get_db)):
             detail="Configure GREENHOUSE_BOARDS com um ou mais tokens públicos de board.",
         )
     return import_greenhouse_boards(db, board_tokens)
+
+
+@router.post("/import-lever", response_model=LeverImportResult)
+def import_lever(db: Session = Depends(get_db)):
+    sites = get_lever_sites()
+    if not sites:
+        raise HTTPException(
+            status_code=503,
+            detail="Configure LEVER_SITES com um ou mais identificadores públicos de site.",
+        )
+    region = get_lever_region()
+    if region not in {"global", "eu"}:
+        raise HTTPException(status_code=503, detail="Configure LEVER_REGION como 'global' ou 'eu'.")
+    return import_lever_sites(db, sites, region)

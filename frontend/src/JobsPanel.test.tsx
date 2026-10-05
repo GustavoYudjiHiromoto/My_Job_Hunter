@@ -64,6 +64,20 @@ describe('recomendações de vagas M5', () => {
           }),
         })
       }
+      if (url === '/api/jobs/import-lever' && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: 'lever',
+            sites_configured: 1,
+            sites_succeeded: 1,
+            created: 1,
+            updated: 1,
+            total: 2,
+            errors: [],
+          }),
+        })
+      }
       if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
         return Promise.resolve({ ok: true, json: async () => recommendations })
       }
@@ -106,6 +120,17 @@ describe('recomendações de vagas M5', () => {
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-greenhouse', { method: 'POST' }))
     expect(await screen.findByRole('status')).toHaveTextContent('Greenhouse: 2 novas · 0 atualizadas · 2 vagas de 1/1 boards')
+  })
+
+  it('aciona a importação do Lever e apresenta o resumo', async () => {
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+
+    await user.click(screen.getByRole('button', { name: /Importar Lever/ }))
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-lever', { method: 'POST' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Lever: 1 novas · 1 atualizadas · 2 vagas de 1/1 sites')
   })
 
   it('mostra um link para cada origem associada à vaga', async () => {

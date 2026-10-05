@@ -106,6 +106,16 @@ export interface GreenhouseImportResult {
   errors: Array<{ board_token: string; message: string }>
 }
 
+export interface LeverImportResult {
+  source: 'lever'
+  sites_configured: number
+  sites_succeeded: number
+  created: number
+  updated: number
+  total: number
+  errors: Array<{ site: string; message: string }>
+}
+
 export const emptyPreference: Preference = {
   desired_titles: '',
   desired_locations: '',

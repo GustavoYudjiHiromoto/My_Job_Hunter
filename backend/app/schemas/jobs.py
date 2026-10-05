@@ -95,3 +95,18 @@ class GreenhouseImportResult(BaseModel):
     updated: int
     total: int
     errors: list[GreenhouseBoardError] = Field(default_factory=list)
+
+
+class LeverSiteError(BaseModel):
+    site: str
+    message: str
+
+
+class LeverImportResult(BaseModel):
+    source: str = "lever"
+    sites_configured: int
+    sites_succeeded: int
+    created: int
+    updated: int
+    total: int
+    errors: list[LeverSiteError] = Field(default_factory=list)

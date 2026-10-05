@@ -44,7 +44,7 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2/M3/M4/M5: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse, deduplicação conservadora entre fontes e recomendações ranqueadas com análise determinística de compatibilidade. IA, notificações e candidatura não estão implementadas.
+M0/M1/M2/M3/M4/M5/M6: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes e recomendações ranqueadas com análise determinística de compatibilidade. IA, notificações e candidatura não estão implementadas.
 
 ## M2: vagas de demonstração
 
@@ -68,6 +68,20 @@ Configure um ou mais tokens de boards separados por vírgula antes de iniciar o 
 - POST /api/jobs/import-greenhouse: coleta os boards configurados e importa/atualiza as vagas.
 - Cada board é processado separadamente; uma falha parcial é relatada sem descartar os boards que responderam.
 - A interface permite acionar a importação manualmente. Nenhuma candidatura é enviada.
+
+## M6: Lever
+
+O adapter usa a [Postings API oficial do Lever](https://github.com/lever/postings-api) para listar vagas publicadas em cada site configurado. A listagem é paginada; o texto vem dos campos plain-text, complementado por listas estruturadas. O site Lever vira um nome de empresa aproximado, pois a resposta não fornece um campo canônico de nome empresarial. Faixas salariais permanecem desconhecidas no modelo normalizado porque a API informa períodos como anual ou por hora, e o modelo atual não armazena esse intervalo.
+
+Configure os identificadores de sites separados por vírgula e a região global ou EU:
+
+    $env:LEVER_SITES = "empresa_a,empresa_b"
+    $env:LEVER_REGION = "global"
+    uvicorn app.main:app --reload --app-dir backend
+
+- POST /api/jobs/import-lever: coleta e importa os sites configurados, informando falhas parciais.
+- Somente GET na lista pública é usado. O endpoint de candidatura do Lever não é chamado.
+- A API não oferece busca textual geral; a coleta abrange os sites configurados.
 
 ## M4: deduplicação entre fontes
 

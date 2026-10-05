@@ -28,6 +28,7 @@ export default function JobsPanel() {
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [importingGreenhouse, setImportingGreenhouse] = useState(false)
+  const [importingLever, setImportingLever] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [location, setLocation] = useState('')
@@ -100,6 +101,27 @@ export default function JobsPanel() {
     }
   }
 
+  async function importLever() {
+    setImportingLever(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await api.importLever()
+      await loadRecommendations()
+      setMessage(
+        'Lever: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
+        result.total + ' vagas de ' + result.sites_succeeded + '/' + result.sites_configured + ' sites',
+      )
+      if (result.errors.length > 0) {
+        setError(result.errors.map((item) => item.site + ': ' + item.message).join(' · '))
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Erro ao importar vagas do Lever.')
+    } finally {
+      setImportingLever(false)
+    }
+  }
+
   return (
     <section className="jobs-section" id="jobs">
       <div className="jobs-intro">
@@ -108,10 +130,13 @@ export default function JobsPanel() {
           <button className="button primary" type="button" onClick={importGreenhouse} disabled={importingGreenhouse}>
             {importingGreenhouse ? 'Consultando Greenhouse…' : 'Importar Greenhouse'} <span>↗</span>
           </button>
+          <button className="button primary" type="button" onClick={importLever} disabled={importingLever}>
+            {importingLever ? 'Consultando Lever…' : 'Importar Lever'} <span>↗</span>
+          </button>
           <button className="button secondary" type="button" onClick={importFixture} disabled={importing}>
             {importing ? 'Importando…' : 'Carregar demonstração'} <span>↓</span>
           </button>
-          <small>Configure GREENHOUSE_BOARDS no ambiente do backend.</small>
+          <small>Configure GREENHOUSE_BOARDS e LEVER_SITES no ambiente do backend.</small>
         </div>
       </div>
       {message && <div className="feedback success" role="status">{message}</div>}

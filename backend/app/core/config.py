@@ -10,3 +10,14 @@ def get_greenhouse_board_tokens() -> list[str]:
     """Lista os identificadores públicos dos boards configurados no ambiente."""
     raw_tokens = os.getenv("GREENHOUSE_BOARDS", "")
     return list(dict.fromkeys(token.strip() for token in raw_tokens.split(",") if token.strip()))
+
+
+def get_lever_sites() -> list[str]:
+    """Lista os sites Lever públicos configurados no ambiente."""
+    raw_sites = os.getenv("LEVER_SITES", "")
+    return list(dict.fromkeys(site.strip() for site in raw_sites.split(",") if site.strip()))
+
+
+def get_lever_region() -> str:
+    """Retorna a região da API Lever configurada (global ou eu)."""
+    return os.getenv("LEVER_REGION", "global").strip().casefold()

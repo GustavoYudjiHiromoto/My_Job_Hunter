@@ -94,6 +94,112 @@ def test_greenhouse_import_requires_board_configuration(client, monkeypatch):
     assert "GREENHOUSE_BOARDS" in response.json()["detail"]
 
 
+def test_lever_import_reports_partial_site_errors(client, monkeypatch):
+    from app.adapters.lever import LeverSourceError
+    from app.schemas.jobs import NormalizedJob
+
+    class FakeLeverAdapter:
+        def __init__(self, site, region):
+            self.site = site
+            self.region = region
+
+        def fetch_jobs(self):
+            if self.site == "unavailable":
+                raise LeverSourceError("Lever retornou HTTP 503 para o site 'unavailable'.")
+            return [
+                NormalizedJob(
+                    source="lever",
+                    external_id=f"{self.site}:101",
+                    title="Platform Engineer",
+                    company="Example Ltd",
+                    source_url="https://jobs.lever.co/example/101",
+                )
+            ]
+
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_sites", lambda: ["example", "unavailable"])
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_region", lambda: "eu")
+    monkeypatch.setattr("app.services.jobs.LeverAdapter", FakeLeverAdapter)
+
+    response = client.post("/api/jobs/import-lever")
+
+    assert response.status_code == 200
+    assert response.json()["sites_configured"] == 2
+    assert response.json()["sites_succeeded"] == 1
+    assert response.json()["created"] == 1
+    assert response.json()["errors"] == [
+        {"site": "unavailable", "message": "Lever retornou HTTP 503 para o site 'unavailable'."}
+    ]
+    stored = client.get("/api/jobs").json()
+    assert len(stored) == 1
+    assert stored[0]["sources"][0]["source"] == "lever"
+
+
+def test_lever_import_requires_site_configuration_and_valid_region(client, monkeypatch):
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_sites", lambda: [])
+    assert client.post("/api/jobs/import-lever").status_code == 503
+
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_sites", lambda: ["company"])
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_region", lambda: "apac")
+    response = client.post("/api/jobs/import-lever")
+    assert response.status_code == 503
+    assert "LEVER_REGION" in response.json()["detail"]
+
+
+def test_lever_and_greenhouse_postings_are_deduplicated(client, monkeypatch):
+    from app.schemas.jobs import NormalizedJob
+
+    class FakeGreenhouseAdapter:
+        source_name = "greenhouse"
+
+        def __init__(self, board_token):
+            self.board_token = board_token
+
+        def fetch_jobs(self):
+            return [
+                NormalizedJob(
+                    source="greenhouse",
+                    external_id="acme:gh-301",
+                    title="Backend Engineer",
+                    company="Acme",
+                    location="São Paulo, SP",
+                    source_url="https://boards.greenhouse.io/acme/jobs/301",
+                )
+            ]
+
+    class FakeLeverAdapter:
+        def __init__(self, site, region):
+            self.site = site
+            self.region = region
+
+        def fetch_jobs(self):
+            return [
+                NormalizedJob(
+                    source="lever",
+                    external_id="acme:lever-301",
+                    title="BACKEND ENGINEER",
+                    company="Acme",
+                    location="Sao Paulo SP",
+                    source_url="https://jobs.lever.co/acme/301",
+                )
+            ]
+
+    monkeypatch.setattr("app.api.routes.jobs.get_greenhouse_board_tokens", lambda: ["acme"])
+    monkeypatch.setattr("app.services.jobs.GreenhouseAdapter", FakeGreenhouseAdapter)
+    assert client.post("/api/jobs/import-greenhouse").status_code == 200
+
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_sites", lambda: ["acme"])
+    monkeypatch.setattr("app.api.routes.jobs.get_lever_region", lambda: "global")
+    monkeypatch.setattr("app.services.jobs.LeverAdapter", FakeLeverAdapter)
+    response = client.post("/api/jobs/import-lever")
+
+    assert response.status_code == 200
+    assert response.json()["created"] == 0
+    assert response.json()["updated"] == 1
+    jobs = client.get("/api/jobs").json()
+    assert len(jobs) == 1
+    assert {source["source"] for source in jobs[0]["sources"]} == {"greenhouse", "lever"}
+
+
 def test_import_from_different_sources_deduplicates_and_keeps_both_sources(client, monkeypatch):
     from app.schemas.jobs import NormalizedJob
 
