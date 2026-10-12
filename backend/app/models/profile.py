@@ -71,6 +71,8 @@ class Preference(Base):
         ForeignKey("professional_profiles.id", ondelete="CASCADE"), unique=True
     )
     desired_titles: Mapped[str] = mapped_column(Text, default="")
+    search_keywords: Mapped[str] = mapped_column(Text, default="")
+    search_areas: Mapped[str] = mapped_column(Text, default="")
     desired_locations: Mapped[str] = mapped_column(Text, default="")
     work_modes: Mapped[str] = mapped_column(Text, default="")
     seniority: Mapped[str] = mapped_column(String(80), default="")

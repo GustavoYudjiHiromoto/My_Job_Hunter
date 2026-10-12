@@ -109,7 +109,14 @@ def _record_skipped(db: Session, requested_source: RequestedSource) -> ImportRun
 
 
 def _mark_abandoned_runs(db: Session) -> None:
-    abandoned = list(db.scalars(select(ImportRun).where(ImportRun.status.in_(("pending", "running")))).all())
+    abandoned = list(
+        db.scalars(
+            select(ImportRun).where(
+                ImportRun.requested_source != "discovery",
+                ImportRun.status.in_(("pending", "running")),
+            )
+        ).all()
+    )
     if not abandoned:
         return
     now = datetime.now(UTC)
@@ -216,6 +223,7 @@ def latest_import_run(db: Session) -> ImportRun | None:
     return db.scalar(
         select(ImportRun)
         .options(selectinload(ImportRun.sources))
+        .where(ImportRun.requested_source != "discovery")
         .order_by(ImportRun.started_at.desc(), ImportRun.id.desc())
         .limit(1)
     )

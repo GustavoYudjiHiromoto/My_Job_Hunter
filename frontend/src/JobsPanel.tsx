@@ -35,13 +35,19 @@ function importStatus(status: ImportRun['status']) {
   })[status]
 }
 
+function sourceStatus(status: ImportRun['sources'][number]['status']) {
+  return ({ pending: 'pendente', succeeded: 'ok', failed: 'falhou', skipped: 'ignorada' })[status]
+}
+
 export default function JobsPanel() {
   const [recommendations, setRecommendations] = useState<JobRecommendation[]>([])
   const [latestRun, setLatestRun] = useState<ImportRun | null>(null)
+  const [latestDiscoveryRun, setLatestDiscoveryRun] = useState<ImportRun | null>(null)
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [importingGreenhouse, setImportingGreenhouse] = useState(false)
   const [importingLever, setImportingLever] = useState(false)
+  const [discoveringJobs, setDiscoveringJobs] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [location, setLocation] = useState('')
@@ -74,6 +80,14 @@ export default function JobsPanel() {
     }
   }, [])
 
+  const loadLatestDiscoveryRun = useCallback(async () => {
+    try {
+      setLatestDiscoveryRun(await api.latestDiscoveryRun())
+    } catch {
+      setLatestDiscoveryRun(null)
+    }
+  }, [])
+
   const loadNotifications = useCallback(async () => {
     try {
       const [settings, history] = await Promise.all([api.notificationSettings(), api.notificationHistory()])
@@ -94,6 +108,10 @@ export default function JobsPanel() {
   }, [loadLatestRun])
 
   useEffect(() => {
+    void loadLatestDiscoveryRun()
+  }, [loadLatestDiscoveryRun])
+
+  useEffect(() => {
     void loadNotifications()
   }, [loadNotifications])
 
@@ -101,6 +119,7 @@ export default function JobsPanel() {
     function refreshWhenVisible() {
       if (document.visibilityState === 'visible') {
         void loadLatestRun()
+        void loadLatestDiscoveryRun()
         void loadRecommendations()
         void loadNotifications()
       }
@@ -111,7 +130,30 @@ export default function JobsPanel() {
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [loadLatestRun, loadRecommendations, loadNotifications])
+  }, [loadLatestRun, loadLatestDiscoveryRun, loadRecommendations, loadNotifications])
+
+  async function discoverJobs() {
+    setDiscoveringJobs(true)
+    setError('')
+    setMessage('')
+    try {
+      const run = await api.discoverJobs()
+      setLatestDiscoveryRun(run)
+      await loadRecommendations()
+      if (run.status === 'succeeded') {
+        setMessage(`Descoberta concluída: ${run.created} novas, ${run.updated} atualizadas.`)
+      } else if (run.status === 'partial') {
+        setMessage(`Descoberta parcialmente concluída: ${run.created} novas, ${run.updated} atualizadas.`)
+      } else {
+        setError(run.error || 'A descoberta não foi concluída.')
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Erro ao descobrir vagas.')
+      await loadLatestDiscoveryRun()
+    } finally {
+      setDiscoveringJobs(false)
+    }
+  }
 
   async function saveNotifications(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -212,6 +254,9 @@ export default function JobsPanel() {
       <div className="jobs-intro">
         <div><p className="eyebrow">M5 · COMPATIBILIDADE</p><h2>Vagas recomendadas para você.</h2><p>Uma análise explicável compara suas preferências e habilidades com cada anúncio.</p></div>
         <div className="job-actions">
+          <button className="button primary" type="button" onClick={discoverJobs} disabled={discoveringJobs}>
+            {discoveringJobs ? 'Buscando vagas…' : 'Descobrir vagas'} <span>↗</span>
+          </button>
           <button className="button primary" type="button" onClick={importGreenhouse} disabled={importingGreenhouse}>
             {importingGreenhouse ? 'Consultando Greenhouse…' : 'Importar Greenhouse'} <span>↗</span>
           </button>
@@ -227,8 +272,14 @@ export default function JobsPanel() {
       {latestRun && <div className="import-run-summary" aria-label="Última coleta">
         <div><strong>Última coleta #{latestRun.id}</strong><span>{importStatus(latestRun.status)} · {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(latestRun.started_at))}</span></div>
         <span>{latestRun.created} novas · {latestRun.updated} atualizadas · {latestRun.total} vagas</span>
-        {latestRun.sources.map((item) => <span key={item.source + item.scope} className={item.status === 'failed' ? 'source-run failed' : 'source-run'}>{item.source} / {item.scope}: {item.status === 'succeeded' ? 'ok' : item.status === 'failed' ? 'falhou' : 'pendente'}</span>)}
+        {latestRun.sources.map((item) => <span key={item.source + item.scope} className={item.status === 'failed' ? 'source-run failed' : 'source-run'}>{item.source} / {item.scope}: {sourceStatus(item.status)}</span>)}
         {latestRun.error && <span className="source-run failed">{latestRun.error}</span>}
+      </div>}
+      {latestDiscoveryRun && <div className="import-run-summary" aria-label="Última descoberta">
+        <div><strong>Última descoberta #{latestDiscoveryRun.id}</strong><span>{importStatus(latestDiscoveryRun.status)} · {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(latestDiscoveryRun.started_at))}</span></div>
+        <span>{latestDiscoveryRun.created} novas · {latestDiscoveryRun.updated} atualizadas · {latestDiscoveryRun.total} resultados</span>
+        {latestDiscoveryRun.sources.map((item) => <span key={item.source + item.scope} className={item.status === 'failed' ? 'source-run failed' : 'source-run'}>{item.source} / {item.scope}: {sourceStatus(item.status)}{item.error ? ` — ${item.error}` : ''}</span>)}
+        {latestDiscoveryRun.error && <span className="source-run failed">{latestDiscoveryRun.error}</span>}
       </div>}
       <section className="notification-panel" aria-labelledby="notification-heading">
         <div><p className="eyebrow">M8 · ALERTAS</p><h3 id="notification-heading">Receba novas vagas por e-mail.</h3><p>O alerta considera apenas vagas novas dessa coleta que atinjam o score configurado.</p></div>

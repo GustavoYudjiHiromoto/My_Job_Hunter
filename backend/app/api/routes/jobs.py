@@ -16,6 +16,11 @@ from app.schemas.jobs import (
     JobRecommendation,
     LeverImportResult,
 )
+from app.services.discovery import (
+    DiscoveryConfigurationError,
+    latest_discovery_run,
+    run_discovery,
+)
 from app.services.jobs import import_from_adapter, latest_import_run, run_import
 from app.services.matching import rank_jobs
 
@@ -51,6 +56,22 @@ def read_recommendations(
 @router.get("/import-runs/latest", response_model=ImportRunRead | None)
 def read_latest_import_run(db: Session = Depends(get_db)):
     return latest_import_run(db)
+
+
+@router.get("/discovery-runs/latest", response_model=ImportRunRead | None)
+def read_latest_discovery_run(db: Session = Depends(get_db)):
+    return latest_discovery_run(db)
+
+
+@router.post("/discover", response_model=ImportRunRead)
+def discover_remote_jobs(db: Session = Depends(get_db)):
+    try:
+        run = run_discovery(db)
+    except DiscoveryConfigurationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if run.status == "skipped":
+        raise HTTPException(status_code=409, detail=run.error)
+    return run
 
 
 @router.get("/{job_id}", response_model=JobRead)

@@ -117,7 +117,7 @@ class ImportRunSourceRead(BaseModel):
 
     source: str
     scope: str
-    status: Literal["pending", "succeeded", "failed"]
+    status: Literal["pending", "succeeded", "failed", "skipped"]
     created: int
     updated: int
     total: int

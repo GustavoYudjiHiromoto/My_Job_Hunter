@@ -1,12 +1,12 @@
 import re
 import unicodedata
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Job, JobSource, JobSourceObservation
+from app.models import Job, JobDiscovery, JobEligibility, JobSource, JobSourceObservation
 from app.schemas.jobs import NormalizedJob
 
 JOB_FIELDS = (
@@ -246,9 +246,81 @@ def _merge_duplicate_job(
         previous = getattr(duplicate, field)
         if (current is None or current == "") and previous is not None and previous != "":
             setattr(canonical, field, previous)
+
+    _merge_discovery_metadata(db, duplicate, canonical)
     for source in list(duplicate.sources):
         source.job = canonical
+    # Persist the FK reassignment before deleting the old parent, independent
+    # of SQLite's connection-level foreign-key pragma and ORM delete ordering.
+    db.flush()
     db.delete(duplicate)
+
+
+def _datetime_key(value: datetime | None) -> float:
+    if value is None:
+        return float("-inf")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.timestamp()
+
+
+def _merge_discovery_metadata(db: Session, duplicate: Job, canonical: Job) -> None:
+    """Move M9 metadata before deleting its owning job, in the current transaction."""
+    canonical_discoveries = list(
+        db.scalars(select(JobDiscovery).where(JobDiscovery.job_id == canonical.id)).all()
+    )
+    discoveries_by_key = {
+        (item.job_source_id, item.query_id): item for item in canonical_discoveries
+    }
+    duplicate_discoveries = list(
+        db.scalars(select(JobDiscovery).where(JobDiscovery.job_id == duplicate.id)).all()
+    )
+    for item in duplicate_discoveries:
+        existing = discoveries_by_key.get((item.job_source_id, item.query_id))
+        if existing is None:
+            item.job_id = canonical.id
+            discoveries_by_key[(item.job_source_id, item.query_id)] = item
+        else:
+            if _datetime_key(item.discovered_at) < _datetime_key(existing.discovered_at):
+                existing.discovered_at = item.discovered_at
+            db.delete(item)
+
+    duplicate_eligibility = db.scalar(
+        select(JobEligibility).where(JobEligibility.job_id == duplicate.id)
+    )
+    if duplicate_eligibility is None:
+        return
+
+    canonical_eligibility = db.scalar(
+        select(JobEligibility).where(JobEligibility.job_id == canonical.id)
+    )
+    if canonical_eligibility is None:
+        duplicate_eligibility.job_id = canonical.id
+        return
+
+    # Keep the canonical row identity and newest evaluation as current; retain the
+    # other complete evaluation as an audit note so its reason/policy are not lost.
+    if _datetime_key(duplicate_eligibility.evaluated_at) > _datetime_key(
+        canonical_eligibility.evaluated_at
+    ):
+        current, previous = duplicate_eligibility, canonical_eligibility
+    else:
+        current, previous = canonical_eligibility, duplicate_eligibility
+
+    canonical_eligibility.status = current.status
+    canonical_eligibility.policy_version = current.policy_version
+    canonical_eligibility.evaluated_at = current.evaluated_at
+    previous_snapshot = (
+        f"[Avaliação consolidada] status={previous.status}; "
+        f"policy_version={previous.policy_version}; "
+        f"evaluated_at={previous.evaluated_at.isoformat() if previous.evaluated_at else 'desconhecido'}; "
+        f"reason={previous.reason}"
+    )
+    current_reason = current.reason or ""
+    canonical_eligibility.reason = "\n".join(
+        part for part in (current_reason, previous_snapshot) if part
+    )
+    db.delete(duplicate_eligibility)
 
 
 def _remove_job_index(

@@ -80,6 +80,7 @@ export default function App() {
     const form = new FormData(event.currentTarget)
     return run(() => api.savePreference({
       desired_titles: value(form, 'desired_titles'), desired_locations: value(form, 'desired_locations'),
+      search_keywords: value(form, 'search_keywords'), search_areas: value(form, 'search_areas'),
       work_modes: value(form, 'work_modes'), seniority: value(form, 'seniority'),
       employment_types: value(form, 'employment_types'),
       minimum_salary: value(form, 'minimum_salary') ? Number(value(form, 'minimum_salary')) : null,
@@ -150,6 +151,8 @@ export default function App() {
             <p className="aside-intro">Defina seus próximos passos. Você pode ajustar tudo quando quiser.</p>
             <form onSubmit={savePreferences} className="stack-form">
               <label>Cargos desejados <small>Um por linha</small><textarea name="desired_titles" rows={3} defaultValue={preference.desired_titles} placeholder={'Engenheiro(a) de software\nDesenvolvedor(a) backend'} /></label>
+              <label>Áreas de busca <small>Uma por linha; exemplo: Engenharia de software</small><textarea name="search_areas" rows={2} defaultValue={preference.search_areas} placeholder={'Engenharia de software\nDados'} /></label>
+              <label>Palavras-chave de busca <small>Uma por linha; não usamos seu currículo ou resumo para criar consultas</small><textarea name="search_keywords" rows={3} defaultValue={preference.search_keywords} placeholder={'Python\nSQL\nBackend'} /></label>
               <label>Localizações <small>Uma por linha</small><textarea name="desired_locations" rows={2} defaultValue={preference.desired_locations} placeholder="São Paulo, SP · Remoto" /></label>
               <label>Modalidade preferida<select name="work_modes" defaultValue={preference.work_modes}><option value="">Selecione</option><option value="Remoto">Remoto</option><option value="Híbrido">Híbrido</option><option value="Presencial">Presencial</option><option value="Indiferente">Indiferente</option></select></label>
               <label>Nível desejado<select name="seniority" defaultValue={preference.seniority}><option value="">Selecione</option><option>Estágio</option><option>Júnior</option><option>Pleno</option><option>Sênior</option><option>Especialista</option><option>Liderança</option><option>Indiferente</option></select></label>

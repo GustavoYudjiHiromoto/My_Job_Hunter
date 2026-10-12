@@ -1,3 +1,4 @@
+from app.models.discovery import DiscoveryQuery, JobDiscovery, JobEligibility
 from app.models.job import Job, JobSource
 from app.models.monitoring import ImportRun, ImportRunSource, JobSourceObservation
 from app.models.notifications import EmailNotification, NotificationPreference
@@ -5,6 +6,7 @@ from app.models.profile import Education, Experience, Preference, ProfessionalPr
 
 __all__ = [
     "Education",
+    "DiscoveryQuery",
     "EmailNotification",
     "Experience",
     "ImportRun",
@@ -12,6 +14,8 @@ __all__ = [
     "Job",
     "JobSource",
     "JobSourceObservation",
+    "JobDiscovery",
+    "JobEligibility",
     "NotificationPreference",
     "Preference",
     "ProfessionalProfile",

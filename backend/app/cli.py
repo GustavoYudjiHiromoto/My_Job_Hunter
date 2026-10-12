@@ -5,6 +5,7 @@ import sys
 
 from app import models  # noqa: F401 - registra modelos adicionais no metadata.
 from app.db.base import Base
+from app.db.migrations import upgrade_schema
 from app.db.session import SessionLocal, engine
 from app.models import ImportRun
 from app.schemas.jobs import ImportRunRead
@@ -43,6 +44,7 @@ def main() -> int:
 
     with SessionLocal() as db:
         Base.metadata.create_all(bind=engine)
+        upgrade_schema(engine)
         run = run_import(db, args.source)
         result = ImportRunRead.model_validate(run)
         print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False))

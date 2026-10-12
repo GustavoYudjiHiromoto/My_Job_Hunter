@@ -21,3 +21,8 @@ def get_lever_sites() -> list[str]:
 def get_lever_region() -> str:
     """Retorna a região da API Lever configurada (global ou eu)."""
     return os.getenv("LEVER_REGION", "global").strip().casefold()
+
+
+def get_jsearch_api_key() -> str:
+    """Retorna a chave opcional do JSearch sem expô-la em respostas."""
+    return os.getenv("JSEARCH_API_KEY", "").strip()

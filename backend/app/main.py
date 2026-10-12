@@ -8,12 +8,14 @@ from app.api.routes.jobs import router as jobs_router
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.profile import router as profile_router
 from app.db.base import Base
+from app.db.migrations import upgrade_schema
 from app.db.session import engine
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    upgrade_schema(engine)
     yield
 
 

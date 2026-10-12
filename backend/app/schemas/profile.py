@@ -76,6 +76,8 @@ class EducationRead(EducationFields):
 
 class PreferenceFields(BaseModel):
     desired_titles: str = ""
+    search_keywords: str = ""
+    search_areas: str = ""
     desired_locations: str = ""
     work_modes: str = ""
     seniority: str = Field(default="", max_length=80)

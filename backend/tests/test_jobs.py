@@ -431,6 +431,181 @@ def test_deduplication_leaves_ambiguous_matches_separate(client):
     assert len(matching) == 3
 
 
+def test_deduplication_preserves_discovery_metadata_and_consolidates_eligibility(client):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from app.main import engine
+    from app.models import (
+        DiscoveryQuery,
+        ImportRun,
+        ImportRunSource,
+        Job,
+        JobDiscovery,
+        JobEligibility,
+        JobSource,
+    )
+    from app.repositories.jobs import import_jobs
+    from app.schemas.jobs import NormalizedJob
+
+    earlier = datetime(2025, 1, 1, tzinfo=UTC)
+    later = earlier + timedelta(days=1)
+    with Session(engine) as db:
+        run = ImportRun(requested_source="discovery", status="succeeded")
+        canonical = Job(
+            title="Backend Engineer", company="Example Ltd", location="São Paulo, SP", status="open",
+            sources=[JobSource(source="greenhouse", external_id="acme:1", source_url="https://gh.example/1")],
+        )
+        duplicate = Job(
+            title="BACKEND ENGINEER", company="Example Ltd", location="Sao Paulo SP", status="open",
+            sources=[JobSource(source="remotive", external_id="remotive:1", source_url="https://remotive.com/1")],
+        )
+        run.sources = [
+            ImportRunSource(source="remotive", scope="remote", status="succeeded"),
+        ]
+        db.add_all([run, canonical, duplicate])
+        db.flush()
+        remotive_query = DiscoveryQuery(
+            import_run_source_id=run.sources[0].id, provider="remotive", strategy="remote",
+            query_hash="a" * 64, search_terms="backend", location=None,
+        )
+        db.add(remotive_query)
+        db.flush()
+        db.add_all([
+            JobDiscovery(job_id=duplicate.id, job_source_id=duplicate.sources[0].id,
+                         query_id=remotive_query.id, discovered_at=earlier),
+            JobDiscovery(job_id=canonical.id, job_source_id=canonical.sources[0].id,
+                         query_id=remotive_query.id, discovered_at=later),
+            JobEligibility(job_id=duplicate.id, status="eligible", reason="motivo antigo",
+                           policy_version="v1", evaluated_at=earlier),
+            JobEligibility(job_id=canonical.id, status="eligible", reason="motivo atual",
+                           policy_version="v2", evaluated_at=later),
+        ])
+        db.commit()
+        canonical_id, duplicate_id = canonical.id, duplicate.id
+
+        import_jobs(db, [NormalizedJob(
+            source="remotive", external_id="remotive:1", title="Backend Engineer", company="Example Ltd",
+            location="São Paulo, SP", source_url="https://remotive.com/1",
+        )])
+
+        assert db.get(Job, duplicate_id) is None
+        discoveries = list(db.scalars(select(JobDiscovery).order_by(JobDiscovery.id)).all())
+        assert len(discoveries) == 2
+        assert {item.job_id for item in discoveries} == {canonical_id}
+        assert {item.job_source_id for item in discoveries} == {
+            source.id for source in db.scalars(select(JobSource).where(JobSource.job_id == canonical_id))
+        }
+        eligibility = db.scalar(select(JobEligibility).where(JobEligibility.job_id == canonical_id))
+        assert eligibility is not None
+        assert eligibility.policy_version == "v2"
+        assert eligibility.reason.startswith("motivo atual")
+        assert "motivo antigo" in eligibility.reason
+        assert "policy_version=v1" in eligibility.reason
+        assert db.scalar(select(JobEligibility).where(JobEligibility.job_id == duplicate_id)) is None
+
+
+def test_deduplication_merge_rolls_back_metadata_and_source_changes_on_failure(client):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import event, select
+    from sqlalchemy.orm import Session
+
+    from app.main import engine
+    from app.models import (
+        DiscoveryQuery,
+        ImportRun,
+        ImportRunSource,
+        Job,
+        JobDiscovery,
+        JobEligibility,
+        JobSource,
+    )
+    from app.repositories.jobs import import_jobs
+    from app.schemas.jobs import NormalizedJob
+
+    with Session(engine) as db:
+        canonical = Job(
+            title="Backend Engineer", company="Example Ltd", location="São Paulo, SP", status="open",
+            sources=[JobSource(source="greenhouse", external_id="acme:2", source_url="https://gh.example/2")],
+        )
+        duplicate = Job(
+            title="BACKEND ENGINEER", company="Example Ltd", location="Sao Paulo SP", status="open",
+            sources=[JobSource(source="remotive", external_id="remotive:2", source_url="https://remotive.com/2")],
+        )
+        db.add_all([canonical, duplicate])
+        db.flush()
+        source_id, duplicate_id, canonical_id = duplicate.sources[0].id, duplicate.id, canonical.id
+        run = ImportRun(requested_source="discovery", status="succeeded")
+        run_source = ImportRunSource(source="remotive", scope="remote", status="succeeded")
+        run.sources.append(run_source)
+        db.add(run)
+        db.flush()
+        query = DiscoveryQuery(
+            import_run_source_id=run_source.id,
+            provider="remotive",
+            strategy="remote",
+            query_hash="c" * 64,
+            search_terms="backend",
+        )
+        db.add(query)
+        db.flush()
+        db.add_all([
+            JobDiscovery(job_id=duplicate.id, job_source_id=source_id, query_id=query.id,
+                         discovered_at=datetime(2025, 1, 1, tzinfo=UTC)),
+            JobEligibility(
+                job_id=duplicate.id,
+                reason="saved",
+                evaluated_at=datetime(2025, 1, 1, tzinfo=UTC),
+            ),
+        ])
+        db.commit()
+
+        def fail_after_merge(session, flush_context, instances):
+            if session.info.pop("fail_merge_flush", False):
+                raise RuntimeError("simulated flush failure")
+
+        event.listen(Session, "before_flush", fail_after_merge)
+        try:
+            db.info["fail_merge_flush"] = True
+            try:
+                import_jobs(
+                    db,
+                    [NormalizedJob(
+                        source="remotive",
+                        external_id="remotive:2",
+                        title="Backend Engineer",
+                        company="Example Ltd",
+                        location="São Paulo, SP",
+                        source_url="https://remotive.com/2",
+                    )],
+                    commit=False,
+                    new_job_ids=set(),
+                )
+            except RuntimeError as exc:
+                assert str(exc) == "simulated flush failure"
+            else:
+                raise AssertionError("expected simulated flush failure")
+            db.rollback()
+        finally:
+            event.remove(Session, "before_flush", fail_after_merge)
+
+    with Session(engine) as verify:
+        assert verify.get(Job, duplicate_id) is not None
+        assert verify.scalar(select(JobSource.job_id).where(JobSource.id == source_id)) == duplicate_id
+        assert (
+            verify.scalar(select(JobDiscovery.job_id).where(JobDiscovery.job_source_id == source_id))
+            == duplicate_id
+        )
+        assert (
+            verify.scalar(select(JobEligibility.job_id).where(JobEligibility.job_id == duplicate_id))
+            == duplicate_id
+        )
+        assert verify.get(Job, canonical_id) is not None
+
+
 def test_source_listing_closes_after_two_complete_absences_and_reopens(client, monkeypatch):
     from app.adapters.greenhouse import GreenhouseSourceError
     from app.schemas.jobs import NormalizedJob

@@ -46,6 +46,25 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 M0/M1/M2/M3/M4/M5/M6/M7/M8: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes, recomendações ranqueadas com análise determinística de compatibilidade, histórico de coletas e alertas por e-mail para novas vagas compatíveis. IA adicional, outros canais e candidatura não estão implementados.
 
+## M9: descoberta via Remotive, JSearch e Jobicy
+
+Preencha **Cargos desejados** e, opcionalmente, **Áreas de busca**, **Palavras-chave de busca**, senioridade e tipo de emprego. As consultas são determinísticas e usam somente esses campos estruturados; currículo e resumo profissional não são enviados aos providers. **Descobrir vagas** aciona `POST /api/jobs/discover`; `GET /api/jobs/discovery-runs/latest` retorna o histórico separado da importação M7.
+
+Cada execução faz no máximo quatro chamadas: uma consulta pública ao [Remotive](https://remotive.com/remote-jobs) (remoto, até 25 resultados), até duas consultas ao JSearch para cobertura local e remota no Brasil (até 25 por consulta) e uma consulta pública ao [Jobicy](https://jobicy.com/jobs-rss-feed) (remoto no Brasil, até 25). Não há retries nem paginação automática. Jobicy é consultado no máximo uma vez por hora, usando o histórico de descoberta já persistido. Os anúncios Jobicy mantêm o URL canônico e a interface identifica a fonte como JOBICY, conforme a atribuição exigida.
+
+JSearch usa a API direta do OpenWeb Ninja, documentada em [JSearch API](https://www.openwebninja.com/api/jsearch). Obtenha uma chave na conta do OpenWeb Ninja e configure `JSEARCH_API_KEY` no ambiente do backend. A chave é enviada no cabeçalho HTTP `x-api-key`, nunca na URL nem no histórico. A integração é opcional: sem chave, diante de indisponibilidade, HTTP 429 ou do limite local, JSearch é marcado como ignorado/falha e as fontes restantes continuam. O código limita JSearch a 200 consultas registradas por mês, correspondente à cota gratuita publicada pelo provider; consultas ignoradas não consomem esse contador. O contador é local e não conhece o uso da mesma chave em outros aplicativos. A aplicação não configura assinatura nem pagamentos: mantenha a conta no plano gratuito e não habilite cobranças/overages para evitar encargos fora do controle do app.
+
+No Windows PowerShell, defina a chave na mesma sessão em que iniciará o backend, substituindo o exemplo fictício:
+
+```powershell
+$env:JSEARCH_API_KEY = "chave_de_teste_ficticia"
+uvicorn app.main:app --reload --app-dir backend
+```
+
+As variáveis `$env:` ficam disponíveis apenas nessa sessão do PowerShell. Jobicy não requer chave comercial; a política do provider pede que os anúncios continuem atribuídos ao Jobicy. Greenhouse e Lever continuam disponíveis pelas configurações existentes, mas suas coletas dependem de boards/sites cadastrados. Adzuna não é consultado em novas execuções; vagas, proveniência e histórico antigos permanecem no SQLite.
+
+Os resultados são normalizados e importados pelo repositório comum, preservando proveniência em `job_discoveries` e consultas em `discovery_queries`; deduplicação e elegibilidade neutra continuam no pipeline atual. Descoberta mantém histórico M9 e não dispara notificações M8. Não há agendamento, scraping ou candidatura automática nesta etapa.
+
 ## M2: vagas de demonstração
 
 A seção Vagas na interface importa uma pequena lista fictícia para validar o modelo comum. A importação é idempotente para o par fonte + identificador externo e não faz requisições a sites de emprego.

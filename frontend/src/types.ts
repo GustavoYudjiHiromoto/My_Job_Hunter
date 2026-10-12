@@ -20,6 +20,8 @@ export interface Education {
 
 export interface Preference {
   desired_titles: string
+  search_keywords: string
+  search_areas: string
   desired_locations: string
   work_modes: string
   seniority: string
@@ -117,9 +119,9 @@ export interface LeverImportResult {
 }
 
 export interface ImportRunSource {
-  source: 'greenhouse' | 'lever'
+  source: 'greenhouse' | 'lever' | 'remotive' | 'adzuna' | 'jsearch' | 'jobicy'
   scope: string
-  status: 'pending' | 'succeeded' | 'failed'
+  status: 'pending' | 'succeeded' | 'failed' | 'skipped'
   created: number
   updated: number
   total: number
@@ -128,7 +130,7 @@ export interface ImportRunSource {
 
 export interface ImportRun {
   id: number
-  requested_source: 'all' | 'greenhouse' | 'lever'
+  requested_source: 'all' | 'greenhouse' | 'lever' | 'discovery'
   status: 'pending' | 'running' | 'succeeded' | 'partial' | 'failed' | 'skipped' | 'interrupted'
   started_at: string
   finished_at: string | null
@@ -160,6 +162,8 @@ export interface EmailNotification {
 
 export const emptyPreference: Preference = {
   desired_titles: '',
+  search_keywords: '',
+  search_areas: '',
   desired_locations: '',
   work_modes: '',
   seniority: '',

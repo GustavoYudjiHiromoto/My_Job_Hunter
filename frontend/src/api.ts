@@ -43,6 +43,20 @@ export const api = {
       ? result as ImportRun
       : null
   }),
+  latestDiscoveryRun: () => fetch('/api/jobs/discovery-runs/latest').then(async (response) => {
+    if (!response.ok) throw new Error('Não foi possível consultar o histórico de descoberta.')
+    const result: unknown = await response.json()
+    return result && typeof result === 'object' && 'id' in result && 'started_at' in result
+      ? result as ImportRun
+      : null
+  }),
+  discoverJobs: () => fetch('/api/jobs/discover', { method: 'POST' }).then(async (response) => {
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(typeof body?.detail === 'string' ? body.detail : 'Não foi possível descobrir vagas.')
+    }
+    return response.json() as Promise<ImportRun>
+  }),
   notificationSettings: () => fetch('/api/notifications/settings').then(async (response) => {
     if (!response.ok) throw new Error('Não foi possível carregar as configurações de alertas.')
     return response.json() as Promise<NotificationSettings>

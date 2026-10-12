@@ -100,6 +100,26 @@ describe('recomendações de vagas M5', () => {
           }),
         })
       }
+      if (url === '/api/jobs/discovery-runs/latest') {
+        return Promise.resolve({ ok: true, json: async () => null })
+      }
+      if (url === '/api/jobs/discover' && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 8,
+            requested_source: 'discovery',
+            status: 'succeeded',
+            started_at: '2026-10-11T12:00:00Z',
+            finished_at: '2026-10-11T12:00:01Z',
+            created: 1,
+            updated: 0,
+            total: 1,
+            error: null,
+            sources: [{ source: 'remotive', scope: 'remote', status: 'succeeded', created: 1, updated: 0, total: 1, error: null }],
+          }),
+        })
+      }
       if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
         return Promise.resolve({ ok: true, json: async () => recommendations })
       }
@@ -128,6 +148,74 @@ describe('recomendações de vagas M5', () => {
     expect(await screen.findByLabelText('Última coleta')).toHaveTextContent('parcial')
     expect(screen.getByLabelText('Última coleta')).toHaveTextContent('greenhouse / acme: ok')
     expect(screen.getByLabelText('Última coleta')).toHaveTextContent('lever / unavailable: falhou')
+  })
+
+  it('aciona a descoberta Remotive e mostra o resultado', async () => {
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+
+    await user.click(screen.getByRole('button', { name: /Descobrir vagas/ }))
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/discover', { method: 'POST' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Descoberta concluída: 1 novas, 0 atualizadas.')
+  })
+
+  it('explica quando JSearch e Jobicy são ignorados', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
+      if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
+      if (url === '/api/jobs/discovery-runs/latest') return Promise.resolve({ ok: true, json: async () => null })
+      if (url === '/api/jobs/discover' && options?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({
+        id: 9, requested_source: 'discovery', status: 'succeeded', started_at: '2026-10-11T12:00:00Z',
+        finished_at: '2026-10-11T12:00:01Z', created: 0, updated: 0, total: 0, error: null,
+        sources: [
+          { source: 'remotive', scope: 'remote', status: 'succeeded', created: 0, updated: 0, total: 0, error: null },
+          { source: 'jsearch', scope: 'br', status: 'skipped', created: 0, updated: 0, total: 0, error: 'JSEARCH_API_KEY não configurada.' },
+          { source: 'jobicy', scope: 'brazil', status: 'skipped', created: 0, updated: 0, total: 0, error: 'Cooldown ativo.' },
+        ],
+      }) })
+      if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) return Promise.resolve({ ok: true, json: async () => recommendations })
+      return Promise.resolve({ ok: true, json: async () => jobs })
+    }))
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+    await user.click(await screen.findByRole('button', { name: /Descobrir vagas/ }))
+    const summary = await screen.findByLabelText('Última descoberta')
+    expect(summary).toHaveTextContent('jsearch / br: ignorada — JSEARCH_API_KEY não configurada.')
+    expect(summary).toHaveTextContent('jobicy / brazil: ignorada — Cooldown ativo.')
+  })
+
+  it('mostra erros por provider sem ocultar sucesso parcial nem resultados válidos', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
+      if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
+      if (url === '/api/jobs/discovery-runs/latest') return Promise.resolve({ ok: true, json: async () => null })
+      if (url === '/api/jobs/discover' && options?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({
+        id: 10, requested_source: 'discovery', status: 'partial', started_at: '2026-10-11T12:00:00Z',
+        finished_at: '2026-10-11T12:00:01Z', created: 1, updated: 0, total: 1, error: null,
+        sources: [
+          { source: 'remotive', scope: 'remote', status: 'succeeded', created: 1, updated: 0, total: 1, error: null },
+          { source: 'jsearch', scope: 'br', status: 'succeeded', created: 0, updated: 0, total: 0, error: 'Uma consulta JSearch falhou: HTTP 429.' },
+          { source: 'jobicy', scope: 'brazil', status: 'failed', created: 0, updated: 0, total: 0, error: 'Jobicy retornou HTTP 503.' },
+        ],
+      }) })
+      if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) return Promise.resolve({ ok: true, json: async () => recommendations })
+      return Promise.resolve({ ok: true, json: async () => jobs })
+    }))
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+
+    await user.click(await screen.findByRole('button', { name: /Descobrir vagas/ }))
+
+    const summary = await screen.findByLabelText('Última descoberta')
+    expect(summary).toHaveTextContent('parcial')
+    expect(summary).toHaveTextContent('1 novas · 0 atualizadas · 1 resultados')
+    expect(summary).toHaveTextContent('remotive / remote: ok')
+    expect(summary).not.toHaveTextContent('remotive / remote: ok —')
+    expect(summary).toHaveTextContent('jsearch / br: ok — Uma consulta JSearch falhou: HTTP 429.')
+    expect(summary).toHaveTextContent('jobicy / brazil: falhou — Jobicy retornou HTTP 503.')
+    expect(await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })).toBeInTheDocument()
   })
 
   it('importa o fixture e informa o resultado', async () => {
