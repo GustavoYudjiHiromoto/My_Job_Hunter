@@ -1,4 +1,4 @@
-import type { Education, EmailNotification, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, NotificationSettings, Preference, ProfessionalProfile, RecommendationFilters } from './types'
+import type { AIAnalysisBatch, Education, EmailNotification, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, NotificationSettings, Preference, ProfessionalProfile, RecommendationFilters } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -53,9 +53,20 @@ export const api = {
   discoverJobs: () => fetch('/api/jobs/discover', { method: 'POST' }).then(async (response) => {
     if (!response.ok) {
       const body = await response.json().catch(() => null)
-      throw new Error(typeof body?.detail === 'string' ? body.detail : 'Não foi possível descobrir vagas.')
+      const detail = typeof body?.detail === 'string' ? body.detail : null
+      const message = detail ?? (response.status >= 500
+        ? `O backend falhou ao executar a busca (HTTP ${response.status}). Confira o histórico de descoberta antes de tentar novamente.`
+        : `Não foi possível iniciar a busca (HTTP ${response.status}).`)
+      throw new Error(message)
     }
     return response.json() as Promise<ImportRun>
+  }),
+  analyzeJobsWithAI: () => fetch('/api/jobs/ai-analysis', { method: 'POST' }).then(async (response) => {
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(typeof body?.detail === 'string' ? body.detail : 'Não foi possível analisar as vagas com IA.')
+    }
+    return response.json() as Promise<AIAnalysisBatch>
   }),
   notificationSettings: () => fetch('/api/notifications/settings').then(async (response) => {
     if (!response.ok) throw new Error('Não foi possível carregar as configurações de alertas.')

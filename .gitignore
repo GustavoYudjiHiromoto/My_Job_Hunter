@@ -8,7 +8,11 @@ venv/
 .coverage
 htmlcov/
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 *.import.lock
 node_modules/
 dist/

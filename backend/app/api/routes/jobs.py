@@ -1,13 +1,16 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.fixture import FixtureAdapter
-from app.core.config import get_greenhouse_board_tokens, get_lever_region, get_lever_sites
+from app.core.config import get_greenhouse_board_tokens, get_lever_region, get_lever_sites, get_openai_model
 from app.db.session import get_db
-from app.repositories.jobs import get_job, list_jobs
+from app.models import AIJobAnalysis, JobEligibility
+from app.repositories.jobs import get_job, list_discovery_jobs, list_jobs
 from app.repositories.profile import get_or_create_profile
+from app.schemas.ai_analysis import AIAnalysisBatchRead
 from app.schemas.jobs import (
     GreenhouseImportResult,
     ImportResult,
@@ -15,6 +18,11 @@ from app.schemas.jobs import (
     JobRead,
     JobRecommendation,
     LeverImportResult,
+)
+from app.services.ai_analysis import (
+    AIAnalysisConfigurationError,
+    current_analysis_hash,
+    run_next_ai_analysis,
 )
 from app.services.discovery import (
     DiscoveryConfigurationError,
@@ -39,11 +47,12 @@ def read_recommendations(
     workplace_type: str | None = Query(default=None, min_length=1, max_length=40),
     status: Literal["open", "closed", "all"] = "open",
     include_excluded: bool = True,
+    include_ineligible: bool = False,
     db: Session = Depends(get_db),
 ):
     profile = get_or_create_profile(db)
-    return rank_jobs(
-        list_jobs(db),
+    recommendations = rank_jobs(
+        list_discovery_jobs(db, include_ineligible=include_ineligible),
         profile,
         min_score=min_score,
         location=location,
@@ -51,6 +60,39 @@ def read_recommendations(
         status=status,
         include_excluded=include_excluded,
     )
+    eligibility = {
+        item.job_id: item
+        for item in db.scalars(
+            select(JobEligibility).where(
+                JobEligibility.job_id.in_([item.job.id for item in recommendations])
+            )
+        ).all()
+    } if recommendations else {}
+    ai_analyses = {
+        item.job_id: item
+        for item in db.scalars(
+            select(AIJobAnalysis).where(
+                AIJobAnalysis.job_id.in_([item.job.id for item in recommendations])
+            )
+        ).all()
+    } if recommendations else {}
+    response = []
+    for item in recommendations:
+        updates = {}
+        if item.job.id in eligibility:
+            updates.update(
+                eligibility_status=eligibility[item.job.id].status,
+                eligibility_reason=eligibility[item.job.id].reason,
+            )
+        analysis = ai_analyses.get(item.job.id)
+        if (
+            analysis is not None
+            and analysis.model == get_openai_model()
+            and analysis.request_hash == current_analysis_hash(profile, item.job, analysis.model)
+        ):
+            updates["ai_analysis"] = analysis
+        response.append(item.model_copy(update=updates) if updates else item)
+    return response
 
 
 @router.get("/import-runs/latest", response_model=ImportRunRead | None)
@@ -72,6 +114,15 @@ def discover_remote_jobs(db: Session = Depends(get_db)):
     if run.status == "skipped":
         raise HTTPException(status_code=409, detail=run.error)
     return run
+
+
+@router.post("/ai-analysis", response_model=AIAnalysisBatchRead)
+def analyze_discovered_jobs_with_ai(db: Session = Depends(get_db)):
+    """Analyze up to ten stored discovery jobs on explicit user request."""
+    try:
+        return run_next_ai_analysis(db)
+    except AIAnalysisConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{job_id}", response_model=JobRead)

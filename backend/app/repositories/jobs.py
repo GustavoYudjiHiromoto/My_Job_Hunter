@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Job, JobDiscovery, JobEligibility, JobSource, JobSourceObservation
+from app.models import AIJobAnalysis, Job, JobDiscovery, JobEligibility, JobSource, JobSourceObservation
 from app.schemas.jobs import NormalizedJob
 
 JOB_FIELDS = (
@@ -248,12 +248,31 @@ def _merge_duplicate_job(
             setattr(canonical, field, previous)
 
     _merge_discovery_metadata(db, duplicate, canonical)
+    _merge_ai_analysis(db, duplicate, canonical)
     for source in list(duplicate.sources):
         source.job = canonical
     # Persist the FK reassignment before deleting the old parent, independent
     # of SQLite's connection-level foreign-key pragma and ORM delete ordering.
     db.flush()
     db.delete(duplicate)
+
+
+def _merge_ai_analysis(db: Session, duplicate: Job, canonical: Job) -> None:
+    """Keep one cached evaluation attached to the canonical job during deduplication."""
+    duplicate_analysis = db.scalar(
+        select(AIJobAnalysis).where(AIJobAnalysis.job_id == duplicate.id)
+    )
+    if duplicate_analysis is None:
+        return
+    canonical_analysis = db.scalar(
+        select(AIJobAnalysis).where(AIJobAnalysis.job_id == canonical.id)
+    )
+    if canonical_analysis is None:
+        duplicate_analysis.job_id = canonical.id
+    else:
+        # The canonical assessment remains authoritative; duplicate analyses are
+        # reproducible and will be recalculated if its current input hash differs.
+        db.delete(duplicate_analysis)
 
 
 def _datetime_key(value: datetime | None) -> float:
@@ -344,6 +363,23 @@ def list_jobs(db: Session) -> list[Job]:
         .order_by(Job.published_at.desc().nulls_last(), Job.id.desc())
     )
     return list(db.scalars(statement).all())
+
+
+def list_discovery_jobs(db: Session, *, include_ineligible: bool = False) -> list[Job]:
+    """Load only jobs with a current discovery source; legacy imports stay stored."""
+    statement = (
+        select(Job)
+        .join(JobSource, JobSource.job_id == Job.id)
+        .where(JobSource.source.in_(("remotive", "jsearch", "jobicy", "fixture")))
+        .options(selectinload(Job.sources))
+        .distinct()
+        .order_by(Job.published_at.desc().nulls_last(), Job.id.desc())
+    )
+    if not include_ineligible:
+        statement = statement.outerjoin(JobEligibility, JobEligibility.job_id == Job.id).where(
+            (JobEligibility.status == "eligible") | (JobEligibility.id.is_(None))
+        )
+    return list(db.scalars(statement).unique().all())
 
 
 def get_job(db: Session, job_id: int) -> Job | None:

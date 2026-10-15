@@ -16,6 +16,7 @@ from app.schemas.profile import (
     ProfileRead,
     ProfileUpdate,
 )
+from app.services.discovery import reevaluate_discovery_eligibility
 from app.services.profile import load_profile
 
 router = APIRouter(prefix="/profile", tags=["profile"])
@@ -106,4 +107,9 @@ def delete_education(education_id: int, db: Session = Depends(get_db)):
 @router.put("/preferences", response_model=PreferenceRead)
 def update_preference(payload: PreferenceUpdate, db: Session = Depends(get_db)):
     profile = get_or_create_profile(db)
-    return save_preference(db, profile.id, payload.model_dump())
+    preference = save_preference(db, profile.id, payload.model_dump(), commit=False)
+    profile.preference = preference
+    reevaluate_discovery_eligibility(db, profile)
+    db.commit()
+    db.refresh(preference)
+    return preference

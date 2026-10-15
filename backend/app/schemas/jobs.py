@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
+from app.schemas.ai_analysis import AIJobAnalysisRead
+
 
 class NormalizedJob(BaseModel):
     source: str = Field(min_length=1, max_length=80)
@@ -73,6 +75,9 @@ class JobRecommendation(BaseModel):
     strengths: list[str]
     gaps: list[str]
     criteria: list[MatchCriterion]
+    eligibility_status: Literal["eligible", "rejected", "needs_review"] | None = None
+    eligibility_reason: str | None = None
+    ai_analysis: AIJobAnalysisRead | None = None
 
 
 class ImportResult(BaseModel):

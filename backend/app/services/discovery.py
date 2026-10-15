@@ -15,18 +15,27 @@ from app.adapters.discovery import (
     RemotiveDiscoveryAdapter,
     canonical_query_parameters,
 )
-from app.models import DiscoveryQuery, ImportRun, ImportRunSource, JobDiscovery, JobEligibility, JobSource
+from app.models import (
+    DiscoveryQuery,
+    ImportRun,
+    ImportRunSource,
+    Job,
+    JobDiscovery,
+    JobEligibility,
+    JobSource,
+)
 from app.models.profile import ProfessionalProfile
 from app.repositories.jobs import import_jobs
 from app.repositories.profile import get_or_create_profile
 from app.services.import_lock import ImportAlreadyRunning, import_lock
 
 logger = logging.getLogger(__name__)
-MAX_QUERIES = 4
 MAX_JSEARCH_QUERIES = 2
 MAX_REMOTIVE_QUERIES = 1
 MAX_JOBICY_QUERIES = 1
-RESULTS_PER_QUERY = 25
+JSEARCH_RESULTS_PER_QUERY = 25
+JOBICY_RESULTS_PER_QUERY = 200
+JOBICY_TAG_MAX_BYTES = 50
 JSEARCH_MONTHLY_REQUEST_LIMIT = 200
 JOBICY_COOLDOWN = timedelta(hours=1)
 
@@ -64,40 +73,37 @@ def _query_hash(parameters: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_query_parameters(parameters).encode("utf-8")).hexdigest()
 
 
-def build_search_plans(profile: ProfessionalProfile) -> list[SearchPlan]:
-    """Build deterministic remote searches from explicit profile fields only."""
-    preference = profile.preference
-    titles = _tokens(preference.desired_titles if preference else "")
-    keywords = _tokens(preference.search_keywords if preference else "")
-    areas = _tokens(preference.search_areas if preference else "")
-    positives = list(dict.fromkeys([*titles, *keywords]))
-    if not positives and not areas:
-        raise ValueError(
-            "Cadastre ao menos um cargo, uma área ou uma palavra-chave antes de descobrir vagas."
-        )
-
-    groups = areas or [""]
-    plans: list[SearchPlan] = []
-    seen_hashes: set[str] = set()
-    for area in groups:
-        terms = list(dict.fromkeys(([area] if area else []) + positives))[:12]
-        parameters = {"search": " ".join(terms), "limit": RESULTS_PER_QUERY}
-        query_hash = _query_hash(parameters)
-        if query_hash in seen_hashes:
+def _jobicy_tag(terms: list[str]) -> str:
+    """Build a deterministic keyword accepted by Jobicy's 50-byte tag limit."""
+    result = ""
+    for word in " ".join(terms).split():
+        candidate = f"{result} {word}".strip()
+        if len(candidate.encode("utf-8")) <= JOBICY_TAG_MAX_BYTES:
+            result = candidate
             continue
-        seen_hashes.add(query_hash)
-        plans.append(
-            SearchPlan(
-                provider="remotive",
-                strategy="remote",
-                terms=terms,
-                parameters=parameters,
-                query_hash=query_hash,
-            )
+        if not result:
+            # Keep a valid UTF-8 prefix if one unusually long token is supplied.
+            for character in word:
+                candidate = result + character
+                if len(candidate.encode("utf-8")) > JOBICY_TAG_MAX_BYTES:
+                    break
+                result = candidate
+        break
+    return result
+
+
+def build_search_plans(profile: ProfessionalProfile) -> list[SearchPlan]:
+    """Fetch Remotive's complete active remote-jobs feed in one request."""
+    parameters: dict[str, Any] = {}
+    return [
+        SearchPlan(
+            provider="remotive",
+            strategy="all_active_remote",
+            terms=[],
+            parameters=parameters,
+            query_hash=_query_hash(parameters),
         )
-        if len(plans) == MAX_QUERIES:
-            break
-    return plans
+    ]
 
 
 def build_jsearch_search_plans(profile: ProfessionalProfile) -> list[SearchPlan]:
@@ -106,10 +112,8 @@ def build_jsearch_search_plans(profile: ProfessionalProfile) -> list[SearchPlan]
     titles = _tokens(preference.desired_titles if preference else "")
     keywords = _tokens(preference.search_keywords if preference else "")
     areas = _tokens(preference.search_areas if preference else "")
-    seniority = _tokens(preference.seniority if preference else "")
-    employment_types = _tokens(preference.employment_types if preference else "")
-    terms = list(dict.fromkeys([*titles, *areas, *keywords, *seniority, *employment_types]))[:8]
-    if not terms:
+    primary_role = next(iter(titles or keywords or areas), None)
+    if not primary_role:
         raise ValueError(
             "Cadastre ao menos um cargo, uma área ou uma palavra-chave antes de descobrir vagas."
         )
@@ -117,8 +121,8 @@ def build_jsearch_search_plans(profile: ProfessionalProfile) -> list[SearchPlan]
         iter(_tokens(preference.desired_locations if preference else "")), "São Paulo"
     )
     strategies = [
-        ("location", " ".join([*terms, location]), False),
-        ("remote", " ".join([*terms, "remote Brazil"]), True),
+        ("location", f"{primary_role} in {location}", False),
+        ("remote", f"{primary_role} remote Brazil", True),
     ]
     plans = []
     for strategy, query_text, remote_only in strategies:
@@ -150,13 +154,14 @@ def build_jobicy_search_plans(profile: ProfessionalProfile) -> list[SearchPlan]:
         *_tokens(preference.seniority if preference else ""),
         *_tokens(preference.employment_types if preference else ""),
     ]))[:8]
-    if not terms:
+    tag = _jobicy_tag(terms)
+    if len(tag.encode("utf-8")) < 3:
         return []
-    parameters = {"tag": " ".join(terms), "geo": "brazil", "count": RESULTS_PER_QUERY}
+    parameters = {"tag": tag, "geo": "brazil", "count": JOBICY_RESULTS_PER_QUERY}
     return [SearchPlan(
         provider="jobicy",
         strategy="remote_brazil",
-        terms=terms,
+        terms=tag.split(),
         parameters=parameters,
         query_hash=_query_hash(parameters),
     )]
@@ -208,18 +213,133 @@ def _jobicy_is_in_cooldown(db: Session, now: datetime | None = None) -> bool:
     return (now or _utc_now()) - last_attempt < JOBICY_COOLDOWN
 
 
-def prefilter_discovered_job(db: Session, job_id: int) -> JobEligibility:
-    """Required pipeline hook; the neutral policy rejects nothing pending approval of rules."""
+def prefilter_discovered_job(
+    db: Session, job_id: int, profile: ProfessionalProfile | None = None
+) -> JobEligibility:
+    """Apply deterministic profile rules while retaining every collected job."""
     result = db.scalar(select(JobEligibility).where(JobEligibility.job_id == job_id))
     if result is None:
         result = JobEligibility(job_id=job_id)
         db.add(result)
-    result.status = "eligible"
-    result.reason = "Nenhuma regra de pré-filtro configurada; aguardando critérios aprovados."
-    result.policy_version = "unconfigured"
+    profile = profile or get_or_create_profile(db)
+    preference = profile.preference
+    reasons: list[str] = []
+    needs_review: list[str] = []
+
+    sources = list(db.scalars(select(JobSource).where(JobSource.job_id == job_id)).all())
+    job_record = db.get(Job, job_id)
+    if job_record is None:
+        return result
+    source_payloads = [source.original_payload for source in sources]
+    remote = (job_record.workplace_type or "").casefold() in {"remote", "remoto", "remota"}
+    remote = remote or any(source.source in {"remotive", "jobicy"} for source in sources)
+    remote = remote or any(
+        payload.get("job_is_remote") is True
+        for payload in source_payloads
+        if isinstance(payload, dict)
+    )
+    modes = _tokens(preference.work_modes if preference else "")
+    remote_allowed = any(
+        unicodedata.normalize("NFKD", mode).encode("ascii", "ignore").decode().casefold()
+        in {"remote", "remoto", "remota", "indiferente", "qualquer"}
+        for mode in modes
+    )
+    if remote:
+        if not remote_allowed:
+            reasons.append("Vaga remota, mas a modalidade remota não está habilitada nas preferências.")
+    else:
+        location = job_record.location or ""
+        normalized_location = _search_normalize(location)
+        preferred_locations = _tokens(preference.desired_locations if preference else "") or ["São Paulo"]
+        if not location.strip():
+            needs_review.append("Localização ausente; não foi possível confirmar São Paulo.")
+        elif not any(_search_normalize(term) in normalized_location for term in preferred_locations):
+            reasons.append("Localização fora das cidades configuradas (padrão: São Paulo).")
+
+    area_terms = _tokens(preference.search_areas if preference else "")
+    if area_terms:
+        search_text_parts = [job_record.title, job_record.description]
+        area_metadata_present = bool(job_record.description.strip())
+        for payload in source_payloads:
+            if not isinstance(payload, dict):
+                continue
+            for key in ("department", "category", "job_category", "job_function", "department_name"):
+                value = payload.get(key)
+                if isinstance(value, str):
+                    search_text_parts.append(value)
+                    area_metadata_present = area_metadata_present or bool(value.strip())
+        search_text = _search_normalize(" ".join(search_text_parts))
+        area_aliases = {
+            "ti": (
+                "ti", "it", "technology", "tecnologia", "software", "developer",
+                "desenvolvimento", "backend", "frontend", "infraestrutura", "sistemas",
+            ),
+            "tecnologia da informacao": (
+                "tecnologia", "software", "developer", "desenvolvimento", "backend",
+                "frontend", "infraestrutura", "sistemas",
+            ),
+            "software": (
+                "software", "developer", "desenvolvimento", "backend", "frontend",
+                "full stack", "engineering", "engenharia",
+            ),
+            "dados": (
+                "data", "dados", "analytics", "analise", "bi", "business intelligence",
+                "machine learning", "cientista de dados",
+            ),
+        }
+        matched_areas = []
+        for term in area_terms:
+            normalized_term = _search_normalize(term)
+            candidates = area_aliases.get(normalized_term, (normalized_term,))
+            if any(_search_contains(search_text, candidate) for candidate in candidates):
+                matched_areas.append(term)
+        if not matched_areas:
+            if area_metadata_present:
+                reasons.append("Área profissional não corresponde às áreas configuradas.")
+            else:
+                needs_review.append("Dados de área ausentes; revisar manualmente.")
+
+    excluded_terms = _tokens(preference.excluded_criteria if preference else "")
+    exclusion_text = _search_normalize(" ".join(
+        [job_record.title, job_record.description, job_record.location or ""]
+    ))
+    matched_exclusions = [term for term in excluded_terms if _search_contains(exclusion_text, term)]
+    if matched_exclusions:
+        reasons.append("Critério de exclusão encontrado: " + ", ".join(matched_exclusions) + ".")
+
+    result.status = "rejected" if reasons else "needs_review" if needs_review else "eligible"
+    result.reason = "; ".join(reasons or needs_review) or (
+        "Compatível com as regras obrigatórias configuradas."
+    )
+    result.policy_version = "profile-v1"
     result.evaluated_at = datetime.now(UTC)
     db.flush()
     return result
+
+
+def reevaluate_discovery_eligibility(db: Session, profile: ProfessionalProfile) -> None:
+    """Keep persisted eligibility aligned with edits to the current preferences."""
+    job_ids = list(
+        db.scalars(
+            select(Job.id)
+            .join(JobSource, JobSource.job_id == Job.id)
+            .where(JobSource.source.in_(("remotive", "jsearch", "jobicy")))
+            .distinct()
+        ).all()
+    )
+    for job_id in job_ids:
+        prefilter_discovered_job(db, job_id, profile)
+
+
+def _search_normalize(value: str) -> str:
+    return " ".join(
+        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold().split()
+    )
+
+
+def _search_contains(text: str, term: str) -> bool:
+    normalized_term = _search_normalize(term)
+    return bool(normalized_term) and f" {normalized_term} " in f" {text} "
 
 
 def _load_run(db: Session, run_id: int) -> ImportRun:
@@ -343,17 +463,19 @@ def run_discovery(
             try:
                 if plan.provider == "remotive":
                     candidates = providers[plan.provider].search(
-                        plan.parameters["search"], limit=RESULTS_PER_QUERY
+                        plan.parameters.get("search"), limit=plan.parameters.get("limit")
                     )
                 elif plan.provider == "jobicy":
                     candidates = providers[plan.provider].search(
-                        plan.parameters["tag"], geo=plan.parameters["geo"], limit=RESULTS_PER_QUERY
+                        plan.parameters["tag"],
+                        geo=plan.parameters["geo"],
+                        limit=plan.parameters["count"],
                     )
                 else:
                     candidates = providers[plan.provider].search(
                         plan.parameters["query"],
                         work_from_home=plan.parameters["work_from_home"],
-                        limit=RESULTS_PER_QUERY,
+                        limit=JSEARCH_RESULTS_PER_QUERY,
                     )
                 candidate_ids: set[int] = set()
                 created_ids: set[int] = set()
@@ -369,7 +491,7 @@ def run_discovery(
                         continue
                     candidate_ids.add(source.id)
                     db.add(JobDiscovery(job_id=source.job_id, job_source_id=source.id, query_id=query.id))
-                    prefilter_discovered_job(db, source.job_id)
+                    prefilter_discovered_job(db, source.job_id, profile)
                 query = db.get(DiscoveryQuery, query.id)
                 query.status = "succeeded"
                 query.created = created

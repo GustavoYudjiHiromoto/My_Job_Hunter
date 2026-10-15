@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 
@@ -15,10 +15,12 @@ describe('perfil profissional', () => {
   })
 
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve({
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => Promise.resolve({
       ok: true,
       status: 200,
-      json: async () => url === '/api/notifications/settings'
+      json: async () => url === '/api/profile/preferences' && options?.method === 'PUT'
+        ? JSON.parse(String(options.body))
+        : url === '/api/notifications/settings'
         ? { enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }
         : url === '/api/notifications' || url.startsWith('/api/jobs/recommendations') || url === '/api/jobs'
           ? []
@@ -44,5 +46,33 @@ describe('perfil profissional', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/profile/preferences', expect.objectContaining({ method: 'PUT' })))
     const saveCall = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/profile/preferences')
     expect(JSON.parse(String(saveCall?.[1]?.body))).toMatchObject({ search_keywords: 'Python', search_areas: 'Dados' })
+    const feedback = await within(screen.getByRole('heading', { name: 'Preferências' }).closest('section')!).findByRole('status')
+    expect(feedback).toHaveTextContent('Preferências salvas.')
+    expect(feedback.closest('.preferences-panel')).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Salvar preferências/ })).toBeEnabled()
+  })
+
+  it('mostra erro de salvamento junto às preferências e libera o botão', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => Promise.resolve({
+      ok: !(url === '/api/profile/preferences' && options?.method === 'PUT'),
+      status: url === '/api/profile/preferences' ? 500 : 200,
+      json: async () => url === '/api/profile/preferences'
+        ? { detail: 'Não foi possível salvar as preferências.' }
+        : url === '/api/notifications/settings'
+          ? { enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }
+          : url === '/api/notifications' || url.startsWith('/api/jobs/recommendations') || url === '/api/jobs'
+            ? []
+            : profile,
+    })))
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByDisplayValue('Joana Lima')
+
+    await user.click(screen.getByRole('button', { name: /Salvar preferências/ }))
+
+    const feedback = await screen.findByRole('alert')
+    expect(feedback).toHaveTextContent('Não foi possível salvar as preferências.')
+    expect(feedback.closest('.preferences-panel')).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Salvar preferências/ })).toBeEnabled()
   })
 })

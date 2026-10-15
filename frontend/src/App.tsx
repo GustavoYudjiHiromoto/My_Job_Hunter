@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from './api'
 import JobsPanel from './JobsPanel'
-import { emptyPreference, type ProfessionalProfile } from './types'
+import { emptyPreference, type Preference, type ProfessionalProfile } from './types'
 
 const emptyProfile: ProfessionalProfile = {
   id: 0, full_name: '', email: '', professional_summary: '', resume_text: '',
@@ -17,6 +17,8 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [savingPreferences, setSavingPreferences] = useState(false)
+  const [preferenceFeedback, setPreferenceFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   const refresh = async () => setProfile(await api.profile())
   useEffect(() => {
@@ -78,7 +80,7 @@ export default function App() {
   function savePreferences(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    return run(() => api.savePreference({
+    const fields = {
       desired_titles: value(form, 'desired_titles'), desired_locations: value(form, 'desired_locations'),
       search_keywords: value(form, 'search_keywords'), search_areas: value(form, 'search_areas'),
       work_modes: value(form, 'work_modes'), seniority: value(form, 'seniority'),
@@ -87,7 +89,18 @@ export default function App() {
       maximum_salary: value(form, 'maximum_salary') ? Number(value(form, 'maximum_salary')) : null,
       salary_currency: value(form, 'salary_currency') || 'BRL',
       must_have: value(form, 'must_have'), excluded_criteria: value(form, 'excluded_criteria'),
-    }), 'Preferências salvas.')
+    }
+    setSavingPreferences(true)
+    setPreferenceFeedback(null)
+    void api.savePreference(fields).then((preference: Preference) => {
+      setProfile((current) => ({ ...current, preference }))
+      setPreferenceFeedback({ kind: 'success', text: 'Preferências salvas.' })
+    }).catch((reason: unknown) => {
+      setPreferenceFeedback({
+        kind: 'error',
+        text: reason instanceof Error ? reason.message : 'Não foi possível salvar as preferências.',
+      })
+    }).finally(() => setSavingPreferences(false))
   }
 
   const preference = profile.preference ?? emptyPreference
@@ -161,14 +174,15 @@ export default function App() {
               <label>Moeda<input name="salary_currency" maxLength={3} defaultValue={preference.salary_currency} /></label>
               <label>Critérios essenciais <small>Uma competência ou condição por linha</small><textarea name="must_have" rows={3} defaultValue={preference.must_have} placeholder="Ex.: trabalho remoto" /></label>
               <label>O que prefere evitar<textarea name="excluded_criteria" rows={2} defaultValue={preference.excluded_criteria} placeholder="Ex.: viagens frequentes" /></label>
-              <button className="button primary full-button" type="submit">Salvar preferências <span>↗</span></button>
+              <button className="button primary full-button" type="submit" disabled={savingPreferences}>{savingPreferences ? 'Salvando…' : 'Salvar preferências'} <span>↗</span></button>
+              {preferenceFeedback && <p className={'preference-feedback ' + preferenceFeedback.kind} role={preferenceFeedback.kind === 'error' ? 'alert' : 'status'}>{preferenceFeedback.text}</p>}
             </form>
           </section>
           <div className="privacy-note"><span aria-hidden="true">✳</span><p><strong>Seu perfil, suas escolhas.</strong><br />Seus dados ficam armazenados localmente neste MVP.</p></div>
         </aside>
       </div>
       <JobsPanel />
-      <footer className="footer"><span>job hunter <b>·</b> M0 + M7</span><span>Feito para encontrar o próximo passo.</span></footer>
+      <footer className="footer"><span>job hunter <b>·</b> descoberta e análise</span><span>Feito para encontrar o próximo passo.</span></footer>
     </main>
   )
 }

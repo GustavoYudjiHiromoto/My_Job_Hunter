@@ -23,6 +23,8 @@ function sourceLabel(source: string) {
   return source === 'fixture' ? 'DEMONSTRAÇÃO' : source.toUpperCase()
 }
 
+const DISCOVERY_SOURCES = new Set(['remotive', 'jsearch', 'jobicy'])
+
 function importStatus(status: ImportRun['status']) {
   return ({
     pending: 'aguardando',
@@ -41,42 +43,39 @@ function sourceStatus(status: ImportRun['sources'][number]['status']) {
 
 export default function JobsPanel() {
   const [recommendations, setRecommendations] = useState<JobRecommendation[]>([])
-  const [latestRun, setLatestRun] = useState<ImportRun | null>(null)
   const [latestDiscoveryRun, setLatestDiscoveryRun] = useState<ImportRun | null>(null)
   const [loading, setLoading] = useState(true)
-  const [importing, setImporting] = useState(false)
-  const [importingGreenhouse, setImportingGreenhouse] = useState(false)
-  const [importingLever, setImportingLever] = useState(false)
   const [discoveringJobs, setDiscoveringJobs] = useState(false)
+  const [analyzingAI, setAnalyzingAI] = useState(false)
+  const [aiFilter, setAiFilter] = useState('all')
+  const [aiMessage, setAiMessage] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [location, setLocation] = useState('')
   const [workplaceType, setWorkplaceType] = useState('')
   const [minScore, setMinScore] = useState('0')
   const [includeExcluded, setIncludeExcluded] = useState(true)
+  const [includeIneligible, setIncludeIneligible] = useState(false)
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false })
   const [notificationHistory, setNotificationHistory] = useState<EmailNotification[]>([])
   const [notificationScore, setNotificationScore] = useState('')
   const [savingNotifications, setSavingNotifications] = useState(false)
   const [notificationMessage, setNotificationMessage] = useState('')
   const appliedFilters = useRef<RecommendationFilters>({})
+  const recommendationsRequest = useRef(0)
 
   const loadRecommendations = useCallback(async (filters: RecommendationFilters = appliedFilters.current) => {
+    const requestId = ++recommendationsRequest.current
     setError('')
     try {
-      setRecommendations(await api.recommendations(filters))
+      const result = await api.recommendations(filters)
+      if (requestId === recommendationsRequest.current) setRecommendations(result)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Erro ao carregar recomendações.')
+      if (requestId === recommendationsRequest.current) {
+        setError(reason instanceof Error ? reason.message : 'Erro ao carregar recomendações.')
+      }
     } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadLatestRun = useCallback(async () => {
-    try {
-      setLatestRun(await api.latestImportRun())
-    } catch {
-      setLatestRun(null)
+      if (requestId === recommendationsRequest.current) setLoading(false)
     }
   }, [])
 
@@ -104,10 +103,6 @@ export default function JobsPanel() {
   }, [loadRecommendations])
 
   useEffect(() => {
-    void loadLatestRun()
-  }, [loadLatestRun])
-
-  useEffect(() => {
     void loadLatestDiscoveryRun()
   }, [loadLatestDiscoveryRun])
 
@@ -116,9 +111,18 @@ export default function JobsPanel() {
   }, [loadNotifications])
 
   useEffect(() => {
+    if (!discoveringJobs) return
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void loadLatestDiscoveryRun()
+      }
+    }, 1500)
+    return () => window.clearInterval(interval)
+  }, [discoveringJobs, loadLatestDiscoveryRun])
+
+  useEffect(() => {
     function refreshWhenVisible() {
       if (document.visibilityState === 'visible') {
-        void loadLatestRun()
         void loadLatestDiscoveryRun()
         void loadRecommendations()
         void loadNotifications()
@@ -130,17 +134,20 @@ export default function JobsPanel() {
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [loadLatestRun, loadLatestDiscoveryRun, loadRecommendations, loadNotifications])
+  }, [loadLatestDiscoveryRun, loadRecommendations, loadNotifications])
 
   async function discoverJobs() {
     setDiscoveringJobs(true)
     setError('')
     setMessage('')
+    setLatestDiscoveryRun(null)
     try {
       const run = await api.discoverJobs()
       setLatestDiscoveryRun(run)
       await loadRecommendations()
-      if (run.status === 'succeeded') {
+      if (run.total === 0) {
+        setMessage('Busca concluída sem vagas retornadas. Confira abaixo o estado e o motivo de cada fonte.')
+      } else if (run.status === 'succeeded') {
         setMessage(`Descoberta concluída: ${run.created} novas, ${run.updated} atualizadas.`)
       } else if (run.status === 'partial') {
         setMessage(`Descoberta parcialmente concluída: ${run.created} novas, ${run.updated} atualizadas.`)
@@ -152,6 +159,23 @@ export default function JobsPanel() {
       await loadLatestDiscoveryRun()
     } finally {
       setDiscoveringJobs(false)
+    }
+  }
+
+  async function analyzeJobsWithAI() {
+    setAnalyzingAI(true)
+    setAiMessage('')
+    setError('')
+    try {
+      const result = await api.analyzeJobsWithAI()
+      await loadRecommendations()
+      const failureMessage = result.failed ? ` ${result.failed} falharam e podem ser tentadas novamente.` : ''
+      const remainingMessage = result.remaining ? ` Restam ${result.remaining} para próximos lotes.` : ''
+      setAiMessage(`${result.analyzed} analisadas com IA.${remainingMessage}${failureMessage}`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Erro ao analisar vagas com IA.')
+    } finally {
+      setAnalyzingAI(false)
     }
   }
 
@@ -182,98 +206,43 @@ export default function JobsPanel() {
       location: location.trim() || undefined,
       workplace_type: workplaceType || undefined,
       include_excluded: includeExcluded,
+      include_ineligible: includeIneligible,
     }
     appliedFilters.current = filters
     setLoading(true)
     await loadRecommendations(filters)
   }
 
-  async function importFixture() {
-    setImporting(true)
-    setError('')
-    setMessage('')
-    try {
-      const result = await api.importFixture()
-      await loadRecommendations()
-      setMessage(result.created + ' novas · ' + result.updated + ' atualizadas · ' + result.total + ' no arquivo')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Erro ao importar vagas.')
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  async function importGreenhouse() {
-    setImportingGreenhouse(true)
-    setError('')
-    setMessage('')
-    try {
-      const result = await api.importGreenhouse()
-      await loadRecommendations()
-      await loadLatestRun()
-      await loadNotifications()
-      setMessage(
-        'Greenhouse: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
-        result.total + ' vagas de ' + result.boards_succeeded + '/' + result.boards_configured + ' boards',
-      )
-      if (result.errors.length > 0) {
-        setError(result.errors.map((item) => item.board_token + ': ' + item.message).join(' · '))
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Erro ao importar vagas do Greenhouse.')
-    } finally {
-      setImportingGreenhouse(false)
-    }
-  }
-
-  async function importLever() {
-    setImportingLever(true)
-    setError('')
-    setMessage('')
-    try {
-      const result = await api.importLever()
-      await loadRecommendations()
-      await loadLatestRun()
-      await loadNotifications()
-      setMessage(
-        'Lever: ' + result.created + ' novas · ' + result.updated + ' atualizadas · ' +
-        result.total + ' vagas de ' + result.sites_succeeded + '/' + result.sites_configured + ' sites',
-      )
-      if (result.errors.length > 0) {
-        setError(result.errors.map((item) => item.site + ': ' + item.message).join(' · '))
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Erro ao importar vagas do Lever.')
-    } finally {
-      setImportingLever(false)
-    }
-  }
+  const visibleRecommendations = recommendations.filter((recommendation) =>
+    recommendation.job.sources.some((source) => DISCOVERY_SOURCES.has(source.source)),
+  )
+  const filteredRecommendations = visibleRecommendations.filter((recommendation) => {
+    const assessment = recommendation.ai_analysis
+    if (aiFilter === 'unanalysed') return !assessment
+    return aiFilter === 'all' || assessment?.classification === aiFilter
+  })
 
   return (
     <section className="jobs-section" id="jobs">
       <div className="jobs-intro">
-        <div><p className="eyebrow">M5 · COMPATIBILIDADE</p><h2>Vagas recomendadas para você.</h2><p>Uma análise explicável compara suas preferências e habilidades com cada anúncio.</p></div>
+        <div><p className="eyebrow">M5 · COMPATIBILIDADE</p><h2>Vagas recomendadas para você.</h2><p>O score atual é determinístico. A avaliação por IA é opcional, separada e pode errar.</p></div>
         <div className="job-actions">
           <button className="button primary" type="button" onClick={discoverJobs} disabled={discoveringJobs}>
             {discoveringJobs ? 'Buscando vagas…' : 'Descobrir vagas'} <span>↗</span>
           </button>
-          <button className="button primary" type="button" onClick={importGreenhouse} disabled={importingGreenhouse}>
-            {importingGreenhouse ? 'Consultando Greenhouse…' : 'Importar Greenhouse'} <span>↗</span>
+          <button className="button secondary" type="button" onClick={analyzeJobsWithAI} disabled={analyzingAI}>
+            {analyzingAI ? 'Analisando…' : 'Analisar próximas 10 com IA'}
           </button>
-          <button className="button primary" type="button" onClick={importLever} disabled={importingLever}>
-            {importingLever ? 'Consultando Lever…' : 'Importar Lever'} <span>↗</span>
-          </button>
-          <button className="button secondary" type="button" onClick={importFixture} disabled={importing}>
-            {importing ? 'Importando…' : 'Carregar demonstração'} <span>↓</span>
-          </button>
-          <small>Configure GREENHOUSE_BOARDS e LEVER_SITES no ambiente do backend.</small>
+          <small>A análise é manual, pode consumir créditos da API e não altera o score atual.</small>
         </div>
       </div>
-      {latestRun && <div className="import-run-summary" aria-label="Última coleta">
-        <div><strong>Última coleta #{latestRun.id}</strong><span>{importStatus(latestRun.status)} · {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(latestRun.started_at))}</span></div>
-        <span>{latestRun.created} novas · {latestRun.updated} atualizadas · {latestRun.total} vagas</span>
-        {latestRun.sources.map((item) => <span key={item.source + item.scope} className={item.status === 'failed' ? 'source-run failed' : 'source-run'}>{item.source} / {item.scope}: {sourceStatus(item.status)}</span>)}
-        {latestRun.error && <span className="source-run failed">{latestRun.error}</span>}
+      {discoveringJobs && <div className="discovery-progress" role="status" aria-live="polite">
+        <strong>Busca em andamento</strong>
+        <span>Consultando Remotive, JSearch (se configurado e dentro do limite) e Jobicy (respeitando o intervalo entre consultas).</span>
+        {latestDiscoveryRun?.status === 'running' && <span>Execução #{latestDiscoveryRun.id}: {latestDiscoveryRun.sources.length
+          ? latestDiscoveryRun.sources.map((item) => `${item.source}: ${sourceStatus(item.status)}`).join(' · ')
+          : 'preparando as fontes'}.</span>}
+        {!latestDiscoveryRun && <span>Preparando e registrando a execução…</span>}
       </div>}
       {latestDiscoveryRun && <div className="import-run-summary" aria-label="Última descoberta">
         <div><strong>Última descoberta #{latestDiscoveryRun.id}</strong><span>{importStatus(latestDiscoveryRun.status)} · {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(latestDiscoveryRun.started_at))}</span></div>
@@ -294,28 +263,40 @@ export default function JobsPanel() {
         <div className="notification-history"><strong>Histórico de envios</strong>{notificationHistory.length === 0 ? <p>Nenhum e-mail enviado ainda.</p> : notificationHistory.map((item) => <div className="notification-entry" key={item.id}><span>{item.status === 'sent' ? 'Enviado' : item.status === 'failed' ? 'Falhou' : item.status} · {item.jobs.length} vaga(s) · score mínimo {item.minimum_score}</span><small>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(item.created_at))} · {item.recipient_email}</small>{item.error && <small className="notification-error">{item.error}</small>}<ul>{item.jobs.map((job) => <li key={job.job_id}><a href={job.source_url} target="_blank" rel="noreferrer">{job.title} — {job.company}</a> ({job.score}%)</li>)}</ul></div>)}</div>
       </section>
       {message && <div className="feedback success" role="status">{message}</div>}
+      {aiMessage && <div className="feedback success" role="status">{aiMessage}</div>}
       {error && <div className="feedback error" role="alert">{error}</div>}
       <form className="recommendation-filters" onSubmit={(event) => void applyFilters(event)}>
         <label>Score mínimo<input type="number" min="0" max="100" value={minScore} onChange={(event) => setMinScore(event.target.value)} /></label>
         <label>Localização<input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Ex.: São Paulo" /></label>
         <label>Modalidade<select value={workplaceType} onChange={(event) => setWorkplaceType(event.target.value)}><option value="">Todas</option><option value="remote">Remota</option><option value="hybrid">Híbrida</option><option value="onsite">Presencial</option></select></label>
         <label className="filter-check"><input type="checkbox" checked={includeExcluded} onChange={(event) => setIncludeExcluded(event.target.checked)} />Incluir vagas com critérios excluídos</label>
+        <label className="filter-check"><input type="checkbox" checked={includeIneligible} onChange={(event) => setIncludeIneligible(event.target.checked)} />Incluir vagas fora do pré-filtro (para revisão)</label>
+        <label>Relevância IA<select value={aiFilter} onChange={(event) => setAiFilter(event.target.value)}><option value="all">Todas</option><option value="relevant">Relevantes</option><option value="maybe">Talvez</option><option value="not_relevant">Pouco relevantes</option><option value="unanalysed">Ainda não analisadas</option></select></label>
         <button className="button secondary" type="submit">Aplicar filtros</button>
       </form>
-      {loading ? <p className="jobs-empty">Calculando compatibilidade…</p> : recommendations.length === 0 ? (
-        <div className="jobs-empty"><span>✳</span><h3>Nenhuma recomendação para estes filtros.</h3><p>Importe vagas ou ajuste os filtros e suas preferências.</p></div>
+      {loading ? <p className="jobs-empty">Calculando compatibilidade…</p> : filteredRecommendations.length === 0 ? (
+        <div className="jobs-empty"><span>✳</span><h3>Nenhuma vaga elegível para estes filtros.</h3><p>As vagas coletadas continuam salvas. Confira se localização, modalidade e área estão configuradas como deseja ou marque “Incluir vagas fora do pré-filtro” para ver os motivos. Anúncios antigos de Greenhouse, Lever e demonstração permanecem no histórico.</p></div>
       ) : (
         <div className="jobs-list">
-          {recommendations.map((recommendation) => {
+          {filteredRecommendations.map((recommendation) => {
             const { job } = recommendation
-            const source = job.sources[0]
+            const sources = job.sources.filter((item) => DISCOVERY_SOURCES.has(item.source))
+            const source = sources[0]
             return <article className={'job-card recommendation-card' + (recommendation.excluded ? ' excluded' : '')} key={job.id}>
               <div className="job-card-top">
-                <div className="job-source-badges">{job.sources.map((item) => <span key={item.source + item.external_id} className={item.source === 'fixture' ? 'demo-badge' : 'demo-badge greenhouse-badge'}>{sourceLabel(item.source)}</span>)}</div>
+                <div className="job-source-badges">{sources.map((item) => <span key={item.source + item.external_id} className="source-badge">{sourceLabel(item.source)}</span>)}</div>
                 <span className={recommendation.excluded ? 'job-status excluded-label' : 'match-score'}>{recommendation.excluded ? 'Critério excluído' : `${recommendation.score}%`}</span>
               </div>
               <div className="job-card-main"><div><h3>{job.title}</h3><p className="job-company">{job.company}</p></div></div>
               <div className="recommendation-coverage">Cobertura da análise: {recommendation.coverage}%</div>
+              {recommendation.ai_analysis && <section className="ai-assessment" aria-label="Avaliação de relevância por IA">
+                <div><strong>Relevância IA · {recommendation.ai_analysis.score}%</strong><span className={'ai-classification ' + recommendation.ai_analysis.classification}>{({ relevant: 'Relevante', maybe: 'Talvez relevante', not_relevant: 'Pouco relevante' })[recommendation.ai_analysis.classification]}</span></div>
+                <p>{recommendation.ai_analysis.rationale}</p>
+                {recommendation.ai_analysis.strengths.length > 0 && <p><b>Compatibilidades:</b> {recommendation.ai_analysis.strengths.join(' · ')}</p>}
+                {recommendation.ai_analysis.gaps.length > 0 && <p><b>Lacunas:</b> {recommendation.ai_analysis.gaps.join(' · ')}</p>}
+                {recommendation.ai_analysis.unknowns.length > 0 && <p><b>Não informado:</b> {recommendation.ai_analysis.unknowns.join(' · ')}</p>}
+              </section>}
+              {recommendation.eligibility_status && recommendation.eligibility_status !== 'eligible' && <p className="feedback warning">{recommendation.eligibility_status === 'needs_review' ? 'Precisa de revisão' : 'Fora do pré-filtro'}: {recommendation.eligibility_reason}</p>}
               <div className="job-meta">
                 {job.location && <span>⌖ {job.location}</span>}
                 {job.workplace_type && <span>{job.workplace_type}</span>}
@@ -328,8 +309,8 @@ export default function JobsPanel() {
                 <div><strong>Gaps e incertezas</strong>{recommendation.gaps.length ? <ul>{recommendation.gaps.map((item) => <li key={item}>{item}</li>)}</ul> : <p>Nenhum gap identificado.</p>}</div>
               </div>
               <details className="job-description"><summary>Ver critérios da análise</summary><ul className="criteria-list">{recommendation.criteria.map((criterion) => <li key={criterion.key}><b>{criterion.label}</b> · {criterion.points}/{criterion.weight} pts · {criterion.result === 'unknown' ? 'Sem dados' : criterion.result === 'match' ? 'Compatível' : criterion.result === 'partial' ? 'Parcial' : 'Divergente'} · {criterion.explanation}</li>)}</ul></details>
-              <div className="job-card-bottom"><span>{publishedLabel(job.published_at)}</span><span>{job.sources.length > 1 ? `${job.sources.length} origens` : `Origem: ${source.source} · ${source.external_id}`}</span></div>
-              <div className="job-source-links">{job.sources.map((item) => <a key={item.source + item.external_id} className="source-link" href={item.source_url} target="_blank" rel="noreferrer">Ver origem {sourceLabel(item.source)} ↗</a>)}</div>
+              <div className="job-card-bottom"><span>{publishedLabel(job.published_at)}</span><span>{sources.length > 1 ? `${sources.length} origens` : `Origem: ${source.source} · ${source.external_id}`}</span></div>
+              <div className="job-source-links">{sources.map((item) => <a key={item.source + item.external_id} className="source-link" href={item.source_url} target="_blank" rel="noreferrer">Ver origem {sourceLabel(item.source)} ↗</a>)}</div>
               <details className="job-description"><summary>Ver descrição</summary><p>{job.description || 'A fonte não informou uma descrição para esta vaga.'}</p></details>
             </article>
           })}

@@ -1,1 +1,1 @@
-"""Pontos de extensão para providers de IA, ainda não implementados."""
+"""Providers de análise de compatibilidade desacoplados do serviço."""

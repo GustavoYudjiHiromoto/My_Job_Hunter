@@ -44,13 +44,13 @@ O frontend usa /api como prefixo; o servidor de desenvolvimento encaminha as cha
 
 ## Escopo atual
 
-M0/M1/M2/M3/M4/M5/M6/M7/M8: estrutura inicial, perfil profissional, experiências, formação, preferências, importação local de vagas de demonstração, coleta pública do Greenhouse e Lever, deduplicação conservadora entre fontes, recomendações ranqueadas com análise determinística de compatibilidade, histórico de coletas e alertas por e-mail para novas vagas compatíveis. IA adicional, outros canais e candidatura não estão implementados.
+M0/M1/M2/M3/M4/M5/M6/M7/M8/M9: estrutura inicial, perfil profissional, importação e descoberta de vagas, deduplicação, ranking determinístico, histórico, alertas por e-mail e avaliação opcional de relevância por IA sob ação manual. Candidaturas não estão implementadas.
 
 ## M9: descoberta via Remotive, JSearch e Jobicy
 
 Preencha **Cargos desejados** e, opcionalmente, **Áreas de busca**, **Palavras-chave de busca**, senioridade e tipo de emprego. As consultas são determinísticas e usam somente esses campos estruturados; currículo e resumo profissional não são enviados aos providers. **Descobrir vagas** aciona `POST /api/jobs/discover`; `GET /api/jobs/discovery-runs/latest` retorna o histórico separado da importação M7.
 
-Cada execução faz no máximo quatro chamadas: uma consulta pública ao [Remotive](https://remotive.com/remote-jobs) (remoto, até 25 resultados), até duas consultas ao JSearch para cobertura local e remota no Brasil (até 25 por consulta) e uma consulta pública ao [Jobicy](https://jobicy.com/jobs-rss-feed) (remoto no Brasil, até 25). Não há retries nem paginação automática. Jobicy é consultado no máximo uma vez por hora, usando o histórico de descoberta já persistido. Os anúncios Jobicy mantêm o URL canônico e a interface identifica a fonte como JOBICY, conforme a atribuição exigida.
+Cada execução faz no máximo quatro chamadas: uma consulta pública ao [Remotive](https://remotive.com/remote-jobs), sem filtros nem limite explícito para receber todo o feed ativo remoto; até duas consultas ao JSearch para cobertura local e remota no Brasil (até 25 por consulta); e uma consulta pública ao [Jobicy](https://jobicy.com/jobs-rss-feed), remota no Brasil (até 200). Não há retries nem paginação automática. Jobicy é consultado no máximo uma vez por hora, usando o histórico de descoberta já persistido. A API pública do Remotive recomenda no máximo quatro consultas por dia e informa bloqueio acima de duas por minuto; o app não agenda coletas, então evite executar manualmente mais de quatro vezes no dia. Os anúncios Jobicy mantêm o URL canônico e a interface identifica a fonte como JOBICY, conforme a atribuição exigida.
 
 JSearch usa a API direta do OpenWeb Ninja, documentada em [JSearch API](https://www.openwebninja.com/api/jsearch). Obtenha uma chave na conta do OpenWeb Ninja e configure `JSEARCH_API_KEY` no ambiente do backend. A chave é enviada no cabeçalho HTTP `x-api-key`, nunca na URL nem no histórico. A integração é opcional: sem chave, diante de indisponibilidade, HTTP 429 ou do limite local, JSearch é marcado como ignorado/falha e as fontes restantes continuam. O código limita JSearch a 200 consultas registradas por mês, correspondente à cota gratuita publicada pelo provider; consultas ignoradas não consomem esse contador. O contador é local e não conhece o uso da mesma chave em outros aplicativos. A aplicação não configura assinatura nem pagamentos: mantenha a conta no plano gratuito e não habilite cobranças/overages para evitar encargos fora do controle do app.
 
@@ -64,6 +64,23 @@ uvicorn app.main:app --reload --app-dir backend
 As variáveis `$env:` ficam disponíveis apenas nessa sessão do PowerShell. Jobicy não requer chave comercial; a política do provider pede que os anúncios continuem atribuídos ao Jobicy. Greenhouse e Lever continuam disponíveis pelas configurações existentes, mas suas coletas dependem de boards/sites cadastrados. Adzuna não é consultado em novas execuções; vagas, proveniência e histórico antigos permanecem no SQLite.
 
 Os resultados são normalizados e importados pelo repositório comum, preservando proveniência em `job_discoveries` e consultas em `discovery_queries`; deduplicação e elegibilidade neutra continuam no pipeline atual. Descoberta mantém histórico M9 e não dispara notificações M8. Não há agendamento, scraping ou candidatura automática nesta etapa.
+
+## Avaliação manual de relevância por IA
+
+A avaliação por IA é uma etapa opcional após a coleta. O score determinístico existente continua sendo a ordenação principal; a classificação da IA (`relevant`, `maybe`, `not_relevant`), seu score e a justificativa ficam separados e podem ser usados pelo filtro **Relevância IA**. Nenhuma chamada ocorre ao carregar a página ou durante a descoberta.
+
+O botão **Analisar próximas 10 com IA** analisa manualmente até dez anúncios descobertos (incluindo os fora do pré-filtro), um por chamada, e permite continuar em lotes. Resultados são armazenados localmente e reutilizados enquanto perfil estruturado, anúncio, versão do prompt e modelo não mudarem. Falhas são parciais: resultados válidos do lote são preservados e os que falharam podem ser tentados novamente. Não há retries automáticos.
+
+Para habilitar, configure `OPENAI_API_KEY` no ambiente do backend; `OPENAI_MODEL` é opcional e usa `gpt-4.1-mini` por padrão. No PowerShell, na mesma sessão em que iniciar o backend:
+
+```powershell
+$env:OPENAI_API_KEY = "sua_chave"
+# Opcional:
+$env:OPENAI_MODEL = "gpt-4.1-mini"
+uvicorn app.main:app --reload --app-dir backend
+```
+
+Essas variáveis não são carregadas automaticamente de `.env` e valem somente para a sessão atual. A chave não é enviada ao frontend nem incluída no banco. O perfil enviado contém habilidades, cargos de experiências, formação estruturada e preferências; nome, e-mail, resumo profissional e texto integral do currículo não são enviados. O anúncio (descrição limitada a 10.000 caracteres) é enviado à API da OpenAI para análise; instruções embutidas nele são tratadas como conteúdo não confiável. A requisição usa `store: false`, mas isso não equivale a retenção zero: consulte os [controles de dados da API](https://developers.openai.com/api/docs/guides/your-data) antes de enviar informações sensíveis. A resposta é validada por schema e persistida sem substituir o score determinístico. Cada clique pode consumir créditos da API; o limite de dez é por lote, não um teto mensal. Os testes usam mocks e não fazem chamadas reais.
 
 ## M2: vagas de demonstração
 

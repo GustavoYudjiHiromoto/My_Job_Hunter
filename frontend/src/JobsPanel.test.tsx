@@ -19,9 +19,9 @@ const jobs = [{
   status: 'open',
   created_at: '2026-10-04T12:00:00Z',
   sources: [{
-    source: 'fixture',
-    external_id: 'demo-001',
-    source_url: 'https://example.com/jobs/demo-001',
+    source: 'remotive',
+    external_id: 'remotive-001',
+    source_url: 'https://remotive.com/remote-jobs/software-dev/backend-developer-9876',
     collected_at: '2026-10-04T12:00:00Z',
   }],
 }]
@@ -34,6 +34,11 @@ const recommendations = [{
   strengths: ['Cargo compatível com backend.', 'Habilidade Python encontrada.'],
   gaps: ['Faixa salarial anunciada está fora da preferência.'],
   criteria: [{ key: 'title', label: 'Cargo desejado', result: 'match', weight: 20, points: 20, explanation: 'Cargo compatível.' }],
+  ai_analysis: {
+    classification: 'relevant', score: 93, rationale: 'Tecnologias centrais e nível são compatíveis.',
+    strengths: ['Python'], gaps: [], unknowns: ['Salário não informado'], model: 'fake-model',
+    analyzed_at: '2026-10-12T12:00:00Z',
+  },
 }]
 
 describe('recomendações de vagas M5', () => {
@@ -46,60 +51,6 @@ describe('recomendações de vagas M5', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
       if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
-      if (url === '/api/jobs/import-fixture' && options?.method === 'POST') {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ created: 1, updated: 0, total: 1 }),
-        })
-      }
-      if (url === '/api/jobs/import-greenhouse' && options?.method === 'POST') {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            source: 'greenhouse',
-            boards_configured: 1,
-            boards_succeeded: 1,
-            created: 2,
-            updated: 0,
-            total: 2,
-            errors: [],
-          }),
-        })
-      }
-      if (url === '/api/jobs/import-lever' && options?.method === 'POST') {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            source: 'lever',
-            sites_configured: 1,
-            sites_succeeded: 1,
-            created: 1,
-            updated: 1,
-            total: 2,
-            errors: [],
-          }),
-        })
-      }
-      if (url === '/api/jobs/import-runs/latest') {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: 7,
-            requested_source: 'all',
-            status: 'partial',
-            started_at: '2026-10-04T12:00:00Z',
-            finished_at: '2026-10-04T12:01:00Z',
-            created: 3,
-            updated: 1,
-            total: 4,
-            error: null,
-            sources: [
-              { source: 'greenhouse', scope: 'acme', status: 'succeeded', created: 3, updated: 1, total: 4, error: null },
-              { source: 'lever', scope: 'unavailable', status: 'failed', created: 0, updated: 0, total: 0, error: 'HTTP 503' },
-            ],
-          }),
-        })
-      }
       if (url === '/api/jobs/discovery-runs/latest') {
         return Promise.resolve({ ok: true, json: async () => null })
       }
@@ -120,6 +71,9 @@ describe('recomendações de vagas M5', () => {
           }),
         })
       }
+      if (url === '/api/jobs/ai-analysis' && options?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ analyzed: 1, remaining: 0, failed: 0, limit: 10 }) })
+      }
       if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
         return Promise.resolve({ ok: true, json: async () => recommendations })
       }
@@ -132,22 +86,28 @@ describe('recomendações de vagas M5', () => {
 
     expect(await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })).toBeInTheDocument()
     expect(screen.getByText('Remuneração não informada')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ver origem DEMONSTRAÇÃO ↗' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Ver origem REMOTIVE ↗' })).toHaveAttribute(
       'href',
-      'https://example.com/jobs/demo-001',
+      'https://remotive.com/remote-jobs/software-dev/backend-developer-9876',
     )
-    expect(screen.getByText('DEMONSTRAÇÃO')).toBeInTheDocument()
+    expect(screen.getByText('REMOTIVE')).toBeInTheDocument()
     expect(screen.getByText('82%')).toBeInTheDocument()
     expect(screen.getByText('Habilidade Python encontrada.')).toBeInTheDocument()
     expect(screen.getByText('Faixa salarial anunciada está fora da preferência.')).toBeInTheDocument()
+    expect(screen.getByText('Relevância IA · 93%')).toBeInTheDocument()
+    expect(screen.getByText('82%')).toBeInTheDocument()
+    expect(screen.getByText('Tecnologias centrais e nível são compatíveis.')).toBeInTheDocument()
   })
 
-  it('mostra o estado agregado e o resultado de cada fonte da última coleta', async () => {
+  it('dispara análise de IA manual e informa o lote processado', async () => {
+    const user = userEvent.setup()
     render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
 
-    expect(await screen.findByLabelText('Última coleta')).toHaveTextContent('parcial')
-    expect(screen.getByLabelText('Última coleta')).toHaveTextContent('greenhouse / acme: ok')
-    expect(screen.getByLabelText('Última coleta')).toHaveTextContent('lever / unavailable: falhou')
+    await user.click(screen.getByRole('button', { name: 'Analisar próximas 10 com IA' }))
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/ai-analysis', { method: 'POST' }))
+    expect(await screen.findByText('1 analisadas com IA.')).toBeInTheDocument()
   })
 
   it('aciona a descoberta Remotive e mostra o resultado', async () => {
@@ -159,6 +119,74 @@ describe('recomendações de vagas M5', () => {
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/discover', { method: 'POST' }))
     expect(await screen.findByRole('status')).toHaveTextContent('Descoberta concluída: 1 novas, 0 atualizadas.')
+  })
+
+  it('mostra feedback enquanto a busca está rodando e atualiza o estado das fontes', async () => {
+    let finishDiscovery: (() => void) | undefined
+    let discoveryStarted = false
+    const runningRun = {
+      id: 11, requested_source: 'discovery', status: 'running', started_at: '2026-10-11T12:00:00Z',
+      finished_at: null, created: 0, updated: 0, total: 0, error: null,
+      sources: [{ source: 'remotive', scope: 'remote', status: 'pending', created: 0, updated: 0, total: 0, error: null }],
+    }
+    const completedRun = {
+      ...runningRun, status: 'succeeded', finished_at: '2026-10-11T12:00:02Z',
+      sources: [{ ...runningRun.sources[0], status: 'succeeded' }],
+    }
+    const pendingResponse = new Promise<void>((resolve) => { finishDiscovery = resolve })
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
+      if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
+      if (url === '/api/jobs/discovery-runs/latest') return Promise.resolve({ ok: true, json: async () => discoveryStarted ? runningRun : null })
+      if (url === '/api/jobs/discover' && options?.method === 'POST') {
+        discoveryStarted = true
+        return pendingResponse.then(() => ({ ok: true, json: async () => completedRun }))
+      }
+      if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) return Promise.resolve({ ok: true, json: async () => recommendations })
+      return Promise.resolve({ ok: true, json: async () => jobs })
+    }))
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+
+    await user.click(await screen.findByRole('button', { name: /Descobrir vagas/ }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Busca em andamento')
+    expect(screen.getByRole('status')).toHaveTextContent('JSearch (se configurado e dentro do limite)')
+    await waitFor(
+      () => expect(screen.getByRole('status')).toHaveTextContent(/Execução #11: remotive: pendente/),
+      { timeout: 3000 },
+    )
+    expect(screen.getByRole('button', { name: /Buscando vagas/ })).toBeDisabled()
+
+    finishDiscovery?.()
+    expect(await screen.findByLabelText('Última descoberta')).toHaveTextContent('remotive / remote: ok')
+  })
+
+  it('explica quando o backend falha antes de registrar a descoberta', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
+      if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
+      if (url === '/api/jobs/discovery-runs/latest') return Promise.resolve({ ok: true, json: async () => null })
+      if (url === '/api/jobs/discover' && options?.method === 'POST') return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+      if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) return Promise.resolve({ ok: true, json: async () => recommendations })
+      return Promise.resolve({ ok: true, json: async () => jobs })
+    }))
+    const user = userEvent.setup()
+    render(<JobsPanel />)
+
+    await user.click(await screen.findByRole('button', { name: /Descobrir vagas/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('O backend falhou ao executar a busca (HTTP 500).')
+    expect(screen.queryByLabelText('Última descoberta')).not.toBeInTheDocument()
+  })
+
+  it('remove da interface importações manuais que não fazem parte da busca M9', async () => {
+    render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+
+    expect(screen.queryByRole('button', { name: /Importar Greenhouse/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Importar Lever/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Carregar demonstração/ })).not.toBeInTheDocument()
   })
 
   it('explica quando JSearch e Jobicy são ignorados', async () => {
@@ -184,6 +212,7 @@ describe('recomendações de vagas M5', () => {
     const summary = await screen.findByLabelText('Última descoberta')
     expect(summary).toHaveTextContent('jsearch / br: ignorada — JSEARCH_API_KEY não configurada.')
     expect(summary).toHaveTextContent('jobicy / brazil: ignorada — Cooldown ativo.')
+    expect(screen.getByRole('status')).toHaveTextContent('Busca concluída sem vagas retornadas.')
   })
 
   it('mostra erros por provider sem ocultar sucesso parcial nem resultados válidos', async () => {
@@ -218,43 +247,10 @@ describe('recomendações de vagas M5', () => {
     expect(await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })).toBeInTheDocument()
   })
 
-  it('importa o fixture e informa o resultado', async () => {
-    const user = userEvent.setup()
-    render(<JobsPanel />)
-    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
-
-    await user.click(screen.getByRole('button', { name: /Carregar demonstração/ }))
-
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-fixture', { method: 'POST' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('1 novas · 0 atualizadas · 1 no arquivo')
-  })
-
-  it('aciona a importação do Greenhouse e apresenta o resumo', async () => {
-    const user = userEvent.setup()
-    render(<JobsPanel />)
-    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
-
-    await user.click(screen.getByRole('button', { name: /Importar Greenhouse/ }))
-
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-greenhouse', { method: 'POST' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Greenhouse: 2 novas · 0 atualizadas · 2 vagas de 1/1 boards')
-  })
-
-  it('aciona a importação do Lever e apresenta o resumo', async () => {
-    const user = userEvent.setup()
-    render(<JobsPanel />)
-    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
-
-    await user.click(screen.getByRole('button', { name: /Importar Lever/ }))
-
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/import-lever', { method: 'POST' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Lever: 1 novas · 1 atualizadas · 2 vagas de 1/1 sites')
-  })
-
-  it('mostra um link para cada origem associada à vaga', async () => {
+  it('mostra origens atuais e oculta Greenhouse em uma vaga deduplicada', async () => {
     jobs[0].sources.push({
       source: 'greenhouse',
-      external_id: 'company:123',
+      external_id: 'legacy:123',
       source_url: 'https://boards.greenhouse.io/company/jobs/123',
       collected_at: '2026-10-04T12:00:00Z',
     })
@@ -262,16 +258,27 @@ describe('recomendações de vagas M5', () => {
     try {
       render(<JobsPanel />)
 
-      expect(await screen.findByRole('link', { name: 'Ver origem DEMONSTRAÇÃO ↗' })).toHaveAttribute(
+      expect(await screen.findByRole('link', { name: 'Ver origem REMOTIVE ↗' })).toHaveAttribute(
         'href',
-        'https://example.com/jobs/demo-001',
+        'https://remotive.com/remote-jobs/software-dev/backend-developer-9876',
       )
-      expect(screen.getByRole('link', { name: 'Ver origem GREENHOUSE ↗' })).toHaveAttribute(
-        'href',
-        'https://boards.greenhouse.io/company/jobs/123',
-      )
+      expect(screen.queryByRole('link', { name: 'Ver origem GREENHOUSE ↗' })).not.toBeInTheDocument()
+      expect(screen.queryByText('GREENHOUSE')).not.toBeInTheDocument()
     } finally {
       jobs[0].sources.pop()
+    }
+  })
+
+  it.each(['fixture', 'greenhouse', 'lever'])('não exibe anúncios antigos da origem %s', async (sourceName) => {
+    const originalSource = jobs[0].sources[0].source
+    jobs[0].sources[0].source = sourceName
+    try {
+      render(<JobsPanel />)
+
+      expect(await screen.findByText(/Anúncios antigos de Greenhouse, Lever e demonstração permanecem/)).toBeInTheDocument()
+      expect(screen.queryByText(sourceName.toUpperCase())).not.toBeInTheDocument()
+    } finally {
+      jobs[0].sources[0].source = originalSource
     }
   })
 
@@ -287,7 +294,41 @@ describe('recomendações de vagas M5', () => {
     await user.click(screen.getByRole('button', { name: 'Aplicar filtros' }))
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      '/api/jobs/recommendations?min_score=60&location=S%C3%A3o+Paulo&workplace_type=remote&include_excluded=true',
+      '/api/jobs/recommendations?min_score=60&location=S%C3%A3o+Paulo&workplace_type=remote&include_excluded=true&include_ineligible=false',
     ))
+  })
+
+  it('ignora respostas antigas de recomendações que chegam fora de ordem', async () => {
+    let resolveFirst: ((response: { ok: boolean; json: () => Promise<unknown> }) => void) | undefined
+    let resolveSecond: ((response: { ok: boolean; json: () => Promise<unknown> }) => void) | undefined
+    let recommendationCalls = 0
+    const latest = [{
+      ...recommendations[0],
+      job: { ...jobs[0], id: 2, title: 'Resposta mais recente' },
+    }]
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
+      if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
+      if (url === '/api/jobs/discovery-runs/latest') return Promise.resolve({ ok: true, json: async () => null })
+      if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
+        recommendationCalls += 1
+        return new Promise((resolve) => {
+          if (recommendationCalls === 1) resolveFirst = resolve
+          else resolveSecond = resolve
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => jobs })
+    }))
+    render(<JobsPanel />)
+    await waitFor(() => expect(recommendationCalls).toBe(1))
+
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(recommendationCalls).toBe(2))
+    resolveSecond?.({ ok: true, json: async () => latest })
+    expect(await screen.findByRole('heading', { name: 'Resposta mais recente' })).toBeInTheDocument()
+    resolveFirst?.({ ok: true, json: async () => recommendations })
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Resposta mais recente' })).toBeInTheDocument())
+    expect(screen.queryByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })).not.toBeInTheDocument()
   })
 })

@@ -29,12 +29,12 @@ def test_jobicy_adapter_uses_public_api_once_without_auth_and_normalizes_job():
         return httpx.Response(200, json={"jobs": [_record()]})
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        jobs = JobicyDiscoveryAdapter(client).search("Backend Developer Python", geo="brazil", limit=25)
+        jobs = JobicyDiscoveryAdapter(client).search("Backend Developer Python", geo="brazil", limit=200)
 
     assert len(requests) == 1
     request = requests[0]
     assert str(request.url).startswith(JOBICY_ROOT)
-    assert dict(request.url.params) == {"tag": "Backend Developer Python", "geo": "brazil", "count": "25"}
+    assert dict(request.url.params) == {"tag": "Backend Developer Python", "geo": "brazil", "count": "200"}
     assert "authorization" not in request.headers
     job = jobs[0]
     assert job.source == "jobicy"

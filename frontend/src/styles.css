@@ -22,6 +22,9 @@ h1 span{color:var(--green)}
 .orbit-core span{font-size:9px;align-self:start;margin-left:-12px;margin-top:11px;color:#c2dec9}
 .orbit-star{position:absolute;color:#d48a5e;font-size:19px}.star-one{top:29px;left:47px}.star-two{bottom:34px;right:1px;color:#7ba28a}
 .feedback{margin:-7px 0 22px;padding:12px 15px;border-radius:10px;font-size:13px}.feedback.success{background:#e4efe7;color:#245c48}.feedback.error{background:#f9e8e2;color:#9e462c}
+.feedback.warning{background:#fff3cd;color:#765b00}
+.discovery-progress{display:grid;gap:7px;margin:0 0 18px;padding:14px 16px;border:1px solid #d8e3d8;border-radius:12px;background:#f1f5ef;color:#425447;font-size:13px}.discovery-progress strong{color:#294c37}.discovery-progress span{line-height:1.45}
+.preference-feedback{margin:0;padding:10px 12px;border-radius:9px;font-size:13px}.preference-feedback.success{background:#e4efe7;color:#245c48}.preference-feedback.error{background:#f9e8e2;color:#9e462c}
 .content-grid{display:grid;grid-template-columns:minmax(0,1.48fr) minmax(300px,.82fr);align-items:start;gap:22px}
 .main-column,.side-column{display:grid;gap:18px}
 .panel{background:#fff;border:1px solid #eeeee7;border-radius:15px;padding:25px 27px;box-shadow:0 4px 18px #293d3110}
@@ -85,6 +88,8 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .match-score{padding:7px 10px;border-radius:16px;background:#e2efe5;color:#286044;font-size:12px;font-weight:800}
 .excluded-label{padding:7px 10px;border-radius:16px;background:#fae7df;color:#a34c30;font-size:10px;font-weight:700}
 .recommendation-coverage{margin:-5px 0 12px;color:#858d84;font-size:9px}
+.ai-assessment{margin:0 0 14px;padding:11px 12px;border:1px solid #dce9dc;border-radius:9px;background:#f5faf4;color:#58675a;font-size:10px;line-height:1.5}
+.ai-assessment>div{display:flex;justify-content:space-between;align-items:center;gap:8px}.ai-assessment strong{font-size:10px;color:#355942}.ai-assessment p{margin:6px 0 0}.ai-classification{padding:3px 7px;border-radius:12px;background:#e4efe5;color:#286044;font-size:9px;font-weight:700}.ai-classification.maybe{background:#f4eedb;color:#866d2d}.ai-classification.not_relevant{background:#f5e6e0;color:#9c513a}
 .match-explanation{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px;background:#fafbf8;border-radius:9px}
 .match-explanation strong{font-size:10px;color:#536257}
 .match-explanation ul,.criteria-list{padding-left:16px;margin:6px 0 0;color:#727a72;font-size:10px;line-height:1.55}
@@ -93,7 +98,7 @@ input::placeholder,textarea::placeholder{color:#b1b5ae}textarea{resize:vertical;
 .jobs-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .job-card{background:#fff;border:1px solid #eeeee7;border-radius:13px;padding:20px 21px;box-shadow:0 4px 18px #293d3108}
 .job-card-top,.job-card-main,.job-card-bottom{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.demo-badge{background:#f8eee3;color:#9a6344;border-radius:12px;padding:5px 8px;font-size:8px;font-weight:700;letter-spacing:.9px}
+.source-badge{background:#e8f0e9;color:#3e7654;border-radius:12px;padding:5px 8px;font-size:8px;font-weight:700;letter-spacing:.9px}
 .job-status{font-size:10px;color:#9a684f}.job-status.open{color:#3e7654}
 .job-card-main{align-items:flex-start;margin:16px 0 13px}
 .job-card-main h3{font:700 16px Arial,sans-serif;letter-spacing:-.25px;margin:0 0 5px;line-height:1.35}

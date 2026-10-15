@@ -88,6 +88,27 @@ export interface JobRecommendation {
   strengths: string[]
   gaps: string[]
   criteria: MatchCriterion[]
+  eligibility_status?: 'eligible' | 'rejected' | 'needs_review' | null
+  eligibility_reason?: string | null
+  ai_analysis?: AIJobAnalysis | null
+}
+
+export interface AIJobAnalysis {
+  classification: 'relevant' | 'maybe' | 'not_relevant'
+  score: number
+  rationale: string
+  strengths: string[]
+  gaps: string[]
+  unknowns: string[]
+  model: string
+  analyzed_at: string
+}
+
+export interface AIAnalysisBatch {
+  analyzed: number
+  remaining: number
+  failed: number
+  limit: number
 }
 
 export interface RecommendationFilters {
@@ -96,6 +117,7 @@ export interface RecommendationFilters {
   workplace_type?: string
   status?: 'open' | 'closed' | 'all'
   include_excluded?: boolean
+  include_ineligible?: boolean
 }
 
 export interface GreenhouseImportResult {

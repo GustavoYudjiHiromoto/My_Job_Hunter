@@ -127,3 +127,32 @@ def test_partial_salary_range_is_uncertain_instead_of_a_mismatch(client):
     assert salary.result == "partial"
     assert salary.points == 5
     assert recommendation.coverage == 5
+
+
+def test_recommendations_do_not_analyze_legacy_greenhouse_records(client):
+    from sqlalchemy.orm import Session
+
+    from app.main import engine
+    from app.models import Job, JobSource
+
+    client.post("/api/jobs/import-fixture")
+    with Session(engine) as db:
+        db.add(Job(
+            title="Legacy only job",
+            company="Old Source",
+            description="Old imported job",
+            status="open",
+            sources=[JobSource(
+                source="greenhouse",
+                external_id="legacy-only-1",
+                source_url="https://boards.greenhouse.io/example/jobs/1",
+                original_payload={},
+            )],
+        ))
+        db.commit()
+
+    recommendations = client.get("/api/jobs/recommendations").json()
+    assert recommendations
+    assert all(item["job"]["title"] != "Legacy only job" for item in recommendations)
+    all_jobs = client.get("/api/jobs").json()
+    assert any(job["title"] == "Legacy only job" for job in all_jobs)

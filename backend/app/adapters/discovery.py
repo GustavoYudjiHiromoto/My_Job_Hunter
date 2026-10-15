@@ -291,9 +291,14 @@ class RemotiveDiscoveryAdapter:
     def __init__(self, client: httpx.Client | None = None):
         self.client = client
 
-    def search(self, terms: str, limit: int = 25) -> list[NormalizedJob]:
+    def search(self, terms: str | None = None, limit: int | None = None) -> list[NormalizedJob]:
+        params: dict[str, Any] = {}
+        if terms and terms.strip():
+            params["search"] = " ".join(terms.split())
+        if limit is not None:
+            params["limit"] = limit
         try:
-            response = self._get(REMOTIVE_ROOT, {"search": terms, "limit": limit})
+            response = self._get(REMOTIVE_ROOT, params)
         except httpx.HTTPError as error:
             raise DiscoveryProviderError("Falha de conexão ao consultar Remotive.") from error
         if not 200 <= response.status_code < 300:
@@ -306,7 +311,8 @@ class RemotiveDiscoveryAdapter:
         if not isinstance(results, list):
             raise DiscoveryProviderError("Remotive retornou uma lista de resultados inválida.")
         try:
-            return [self._normalize(record) for record in results[:limit]]
+            records = results if limit is None else results[:limit]
+            return [self._normalize(record) for record in records]
         except (ValidationError, KeyError, TypeError, ValueError) as error:
             raise DiscoveryProviderError("Remotive retornou dados de vaga inválidos.") from error
 

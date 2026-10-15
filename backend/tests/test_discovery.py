@@ -10,6 +10,7 @@ from app.models import (
     DiscoveryQuery,
     ImportRun,
     ImportRunSource,
+    Job,
     JobDiscovery,
     JobEligibility,
     JobSource,
@@ -91,12 +92,42 @@ def test_jobicy_planner_uses_profile_fields_for_one_remote_brazil_query():
     assert plans[0].parameters == {
         "tag": "Backend Developer Python Data Junior",
         "geo": "brazil",
-        "count": 25,
+        "count": 200,
     }
     assert "Never search" not in plans[0].parameters["tag"]
 
 
-def test_remotive_search_planner_uses_structured_fields_and_caps_queries():
+def test_jobicy_planner_keeps_query_within_official_utf8_byte_limit_deterministically():
+    profile = ProfessionalProfile(
+        preference=Preference(desired_titles="á" * 30),
+    )
+
+    first = build_jobicy_search_plans(profile)
+    second = build_jobicy_search_plans(profile)
+
+    assert first[0].parameters["tag"] == second[0].parameters["tag"]
+    assert len(first[0].parameters["tag"].encode("utf-8")) == 50
+    assert first[0].parameters["tag"] == "á" * 25
+
+
+def test_jobicy_planner_includes_only_complete_words_when_fitting_query_limit():
+    profile = ProfessionalProfile(
+        preference=Preference(desired_titles="Backend Developer", search_keywords="x" * 40),
+    )
+
+    plan = build_jobicy_search_plans(profile)[0]
+
+    assert plan.parameters["tag"] == "Backend Developer"
+    assert len(plan.parameters["tag"].encode("utf-8")) <= 50
+
+
+def test_jobicy_planner_skips_keyword_shorter_than_provider_minimum():
+    profile = ProfessionalProfile(preference=Preference(search_keywords="AI"))
+
+    assert build_jobicy_search_plans(profile) == []
+
+
+def test_remotive_search_planner_fetches_the_complete_feed_without_filters():
     profile = ProfessionalProfile(
         professional_summary="Do not search this phrase",
         resume_text="Do not search this either",
@@ -109,11 +140,34 @@ def test_remotive_search_planner_uses_structured_fields_and_caps_queries():
 
     plans = build_search_plans(profile)
 
-    assert len(plans) == 4
-    assert all(plan.provider == "remotive" and plan.strategy == "remote" for plan in plans)
-    assert all("Do not search" not in plan.parameters["search"] for plan in plans)
-    assert plans[0].parameters["limit"] == 25
-    assert plans[0].terms == ["Software", "Backend Developer", "Python", "SQL"]
+    assert len(plans) == 1
+    assert plans[0].provider == "remotive"
+    assert plans[0].strategy == "all_active_remote"
+    assert plans[0].parameters == {}
+    assert plans[0].terms == []
+
+
+def test_remotive_adapter_requests_and_normalizes_all_results_without_limit():
+    requests = []
+    records = [
+        {
+            **_remotive_job(),
+            "id": index,
+            "url": f"https://remotive.com/remote-jobs/software-dev/backend-{index}",
+        }
+        for index in range(30)
+    ]
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"jobs": records})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        jobs = RemotiveDiscoveryAdapter(client).search()
+
+    assert len(requests) == 1
+    assert dict(requests[0].url.params) == {}
+    assert len(jobs) == 30
 
 
 def test_jsearch_planner_builds_distinct_local_and_remote_queries_from_preferences():
@@ -133,13 +187,26 @@ def test_jsearch_planner_builds_distinct_local_and_remote_queries_from_preferenc
     plans = build_jsearch_search_plans(profile)
 
     assert [plan.strategy for plan in plans] == ["location", "remote"]
-    assert "São Paulo" in plans[0].parameters["query"]
+    assert plans[0].parameters["query"] == "Backend Developer in São Paulo"
     assert plans[0].parameters["work_from_home"] is False
-    assert "remote Brazil" in plans[1].parameters["query"]
+    assert plans[1].parameters["query"] == "Backend Developer remote Brazil"
     assert plans[1].parameters["work_from_home"] is True
-    assert all("Junior" in plan.parameters["query"] for plan in plans)
-    assert all("Internship" in plan.parameters["query"] for plan in plans)
+    assert all("Junior" not in plan.parameters["query"] for plan in plans)
+    assert all("Internship" not in plan.parameters["query"] for plan in plans)
+    assert all("Python" not in plan.parameters["query"] for plan in plans)
+    assert all("Software" not in plan.parameters["query"] for plan in plans)
     assert all("Never send" not in plan.parameters["query"] for plan in plans)
+
+
+def test_jsearch_planner_uses_keywords_or_areas_when_no_title_is_configured():
+    profile = ProfessionalProfile(
+        preference=Preference(search_keywords="Java Developer\nPython", search_areas="Data")
+    )
+
+    plans = build_jsearch_search_plans(profile)
+
+    assert plans[0].parameters["query"] == "Java Developer in São Paulo"
+    assert plans[1].parameters["query"] == "Java Developer remote Brazil"
 
 
 def test_discovery_normalizes_deduplicates_and_tracks_jsearch_queries(client, monkeypatch):
@@ -150,6 +217,7 @@ def test_discovery_normalizes_deduplicates_and_tracks_jsearch_queries(client, mo
             "search_keywords": "Python",
             "search_areas": "Software\nData",
             "desired_locations": "São Paulo",
+            "work_modes": "Remoto",
             "seniority": "Junior",
             "employment_types": "Internship",
         },
@@ -192,8 +260,14 @@ def test_discovery_normalizes_deduplicates_and_tracks_jsearch_queries(client, mo
         ("jobicy", "brazil"),
     }
     assert len(remotive_requests) == 1
+    assert dict(remotive_requests[0].url.params) == {}
     assert len(jsearch_requests) == 2
     assert len(jobicy_requests) == 1
+    assert dict(jobicy_requests[0].url.params) == {
+        "tag": "Backend Developer Python Software Data Junior",
+        "geo": "brazil",
+        "count": "200",
+    }
     assert len(remotive_requests) + len(jsearch_requests) + len(jobicy_requests) == 4
     assert [request.url.params["work_from_home"] for request in jsearch_requests] == ["false", "true"]
     assert all(request.headers["x-api-key"] == "test-jsearch-key" for request in jsearch_requests)
@@ -231,7 +305,7 @@ def test_discovery_normalizes_deduplicates_and_tracks_jsearch_queries(client, mo
     assert len(discoveries) == 3
     assert len(eligibility) == 1
     assert eligibility[0].status == "eligible"
-    assert eligibility[0].policy_version == "unconfigured"
+    assert eligibility[0].policy_version == "profile-v1"
     assert len(job_sources) == 2
     assert {source.source for source in job_sources} == {"remotive", "jsearch"}
     assert all("test-jsearch-key" not in str(query.parameters) for query in queries)
@@ -688,3 +762,134 @@ def test_jobicy_cooldown_uses_failed_attempt_time_and_ignores_skips(client, monk
         assert all_jobicy_queries[2].created_at.replace(tzinfo=UTC) == datetime(
             2026, 10, 1, 11, 5, tzinfo=UTC
         )
+
+
+def test_prefilter_keeps_ambiguous_location_for_review_and_hides_it_by_default(client):
+    client.put("/api/profile/preferences", json={
+        "desired_locations": "São Paulo",
+        "work_modes": "Presencial",
+        "search_areas": "TI\nDados",
+    })
+    with Session(main.engine) as db:
+        job = Job(
+            title="Pessoa Analista",
+            company="Empresa Exemplo",
+            description="",
+            location=None,
+            workplace_type="Presencial",
+            status="open",
+            sources=[JobSource(
+                source="jsearch",
+                external_id="prefilter-ambiguous-location",
+                source_url="https://example.com/jobs/ambiguous",
+                original_payload={"job_is_remote": False},
+            )],
+        )
+        db.add(job)
+        db.flush()
+        eligibility = discovery_service.prefilter_discovered_job(db, job.id)
+        job_id = job.id
+        db.commit()
+        assert eligibility.status == "needs_review"
+        assert "Localização ausente" in eligibility.reason
+
+    assert all(item["job"]["id"] != job_id for item in client.get("/api/jobs/recommendations").json())
+    review_items = client.get("/api/jobs/recommendations", params={"include_ineligible": "true"}).json()
+    reviewed = next(item for item in review_items if item["job"]["id"] == job_id)
+    assert reviewed["eligibility_status"] == "needs_review"
+    assert "Localização ausente" in reviewed["eligibility_reason"]
+
+
+def test_saving_preferences_reevaluates_existing_discovery_eligibility(client):
+    client.put("/api/profile/preferences", json={
+        "desired_locations": "São Paulo",
+        "work_modes": "Presencial",
+    })
+    with Session(main.engine) as db:
+        job = Job(
+            title="Desenvolvedora",
+            company="Empresa Exemplo",
+            description="",
+            location="Rio de Janeiro",
+            workplace_type="Presencial",
+            status="open",
+            sources=[JobSource(
+                source="jsearch",
+                external_id="prefilter-location-edit",
+                source_url="https://example.com/jobs/location-edit",
+                original_payload={"job_is_remote": False},
+            )],
+        )
+        db.add(job)
+        db.flush()
+        eligibility = discovery_service.prefilter_discovered_job(db, job.id)
+        job_id = job.id
+        db.commit()
+        assert eligibility.status == "rejected"
+
+    client.put("/api/profile/preferences", json={
+        "desired_locations": "Rio de Janeiro",
+        "work_modes": "Presencial",
+    })
+    with Session(main.engine) as db:
+        eligibility = db.scalar(select(JobEligibility).where(JobEligibility.job_id == job_id))
+        assert eligibility.status == "eligible"
+
+
+def test_first_saved_preference_is_used_to_reevaluate_existing_jobs(client):
+    with Session(main.engine) as db:
+        job = Job(
+            title="Backend Developer",
+            company="Remote Example",
+            description="Develop backend services.",
+            location="Worldwide",
+            workplace_type="Remoto",
+            status="open",
+            sources=[JobSource(
+                source="remotive",
+                external_id="prefilter-first-preference",
+                source_url="https://example.com/jobs/first-preference",
+                original_payload={},
+            )],
+        )
+        db.add(job)
+        db.flush()
+        eligibility = discovery_service.prefilter_discovered_job(db, job.id)
+        job_id = job.id
+        db.commit()
+        assert eligibility.status == "rejected"
+
+    client.put("/api/profile/preferences", json={"work_modes": "Remoto"})
+    with Session(main.engine) as db:
+        eligibility = db.scalar(select(JobEligibility).where(JobEligibility.job_id == job_id))
+        assert eligibility.status == "eligible"
+
+
+def test_indifferent_work_mode_accepts_remote_jobs(client):
+    client.put("/api/profile/preferences", json={
+        "desired_locations": "São Paulo\nBrasil",
+        "work_modes": "Indiferente",
+        "search_areas": "TI",
+    })
+    with Session(main.engine) as db:
+        job = Job(
+            title="Backend Developer",
+            company="Remote Example",
+            description="Backend software development.",
+            location="Worldwide",
+            workplace_type="Remoto",
+            status="open",
+            sources=[JobSource(
+                source="remotive",
+                external_id="prefilter-indifferent-mode",
+                source_url="https://example.com/jobs/indifferent-mode",
+                original_payload={},
+            )],
+        )
+        db.add(job)
+        db.flush()
+        eligibility = discovery_service.prefilter_discovered_job(db, job.id)
+        status = eligibility.status
+        db.commit()
+
+    assert status == "eligible"
