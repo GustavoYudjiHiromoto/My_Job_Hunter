@@ -1,4 +1,4 @@
-import type { AIAnalysisBatch, Education, EmailNotification, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, NotificationSettings, Preference, ProfessionalProfile, RecommendationFilters } from './types'
+import type { AIAnalysisBatch, Education, EmailNotification, Experience, GreenhouseImportResult, ImportRun, Job, JobRecommendation, LeverImportResult, NotificationSettings, Preference, ProfessionalProfile, RecommendationFilters, ResumeImportDraft } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/profile' + path, {
@@ -17,6 +17,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   profile: () => request<ProfessionalProfile>(''),
   saveProfile: (data: object) => request<ProfessionalProfile>('', { method: 'PUT', body: JSON.stringify(data) }),
+  previewResumeImport: async (file: File, consent: boolean) => {
+    const body = new FormData()
+    body.append('file', file)
+    body.append('consent_to_openrouter', String(consent))
+    const response = await fetch('/api/profile/resume-import/preview', { method: 'POST', body })
+    if (!response.ok) {
+      const result = await response.json().catch(() => null)
+      throw new Error(typeof result?.detail === 'string' ? result.detail : 'Não foi possível preparar a prévia do currículo.')
+    }
+    return response.json() as Promise<ResumeImportDraft>
+  },
+  applyResumeImport: async (draft: ResumeImportDraft, sections: string[]) => {
+    const response = await fetch('/api/profile/resume-import/apply', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft, sections }),
+    })
+    if (!response.ok) {
+      const result = await response.json().catch(() => null)
+      throw new Error(typeof result?.detail === 'string' ? result.detail : 'Não foi possível salvar a importação do currículo.')
+    }
+    return response.json() as Promise<{ saved_sections: string[]; experiences_added: number; education_added: number }>
+  },
   addExperience: (data: object) => request<Experience>('/experiences', { method: 'POST', body: JSON.stringify(data) }),
   deleteExperience: (id: number) => request<void>('/experiences/' + id, { method: 'DELETE' }),
   addEducation: (data: object) => request<Education>('/education', { method: 'POST', body: JSON.stringify(data) }),

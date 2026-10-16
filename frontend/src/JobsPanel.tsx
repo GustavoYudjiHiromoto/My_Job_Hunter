@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from './api'
-import type { EmailNotification, ImportRun, Job, JobRecommendation, NotificationSettings, RecommendationFilters } from './types'
+import type { AIAnalysisBatchItem, EmailNotification, ImportRun, Job, JobRecommendation, NotificationSettings, RecommendationFilters } from './types'
 
 function salaryLabel(job: Job) {
   if (job.salary_min == null && job.salary_max == null) return 'Remuneração não informada'
@@ -24,6 +24,24 @@ function sourceLabel(source: string) {
 }
 
 const DISCOVERY_SOURCES = new Set(['remotive', 'jsearch', 'jobicy'])
+const AI_SORT_STORAGE_KEY = 'my-job-hunter.ai-sort-order'
+const HIDE_LOW_AI_STORAGE_KEY = 'my-job-hunter.hide-low-ai-relevance'
+
+function readStoredAISortOrder(): 'profile' | 'ai' {
+  try {
+    return window.localStorage.getItem(AI_SORT_STORAGE_KEY) === 'ai' ? 'ai' : 'profile'
+  } catch {
+    return 'profile'
+  }
+}
+
+function readStoredHideLowAI(): boolean {
+  try {
+    return window.localStorage.getItem(HIDE_LOW_AI_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
 
 function importStatus(status: ImportRun['status']) {
   return ({
@@ -48,7 +66,10 @@ export default function JobsPanel() {
   const [discoveringJobs, setDiscoveringJobs] = useState(false)
   const [analyzingAI, setAnalyzingAI] = useState(false)
   const [aiFilter, setAiFilter] = useState('all')
+  const [aiSortOrder, setAiSortOrder] = useState<'profile' | 'ai'>(readStoredAISortOrder)
+  const [hideLowAIRelevance, setHideLowAIRelevance] = useState(readStoredHideLowAI)
   const [aiMessage, setAiMessage] = useState('')
+  const [aiBatchResults, setAiBatchResults] = useState<AIAnalysisBatchItem[]>([])
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [location, setLocation] = useState('')
@@ -63,6 +84,15 @@ export default function JobsPanel() {
   const [notificationMessage, setNotificationMessage] = useState('')
   const appliedFilters = useRef<RecommendationFilters>({})
   const recommendationsRequest = useRef(0)
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(AI_SORT_STORAGE_KEY, aiSortOrder)
+      window.localStorage.setItem(HIDE_LOW_AI_STORAGE_KEY, String(hideLowAIRelevance))
+    } catch {
+      // Preferências de apresentação continuam funcionais mesmo sem acesso ao armazenamento local.
+    }
+  }, [aiSortOrder, hideLowAIRelevance])
 
   const loadRecommendations = useCallback(async (filters: RecommendationFilters = appliedFilters.current) => {
     const requestId = ++recommendationsRequest.current
@@ -165,13 +195,27 @@ export default function JobsPanel() {
   async function analyzeJobsWithAI() {
     setAnalyzingAI(true)
     setAiMessage('')
+    setAiBatchResults([])
     setError('')
     try {
       const result = await api.analyzeJobsWithAI()
       await loadRecommendations()
+      setAiBatchResults(result.items)
+      if (result.analyzed === 0 && result.failed === 0) {
+        setAiMessage('Nenhuma vaga nova precisava de análise; não havia conclusões pendentes neste lote.')
+        return
+      }
+      const counts = {
+        relevant: result.items.filter((item) => item.classification === 'relevant').length,
+        maybe: result.items.filter((item) => item.classification === 'maybe').length,
+        notRelevant: result.items.filter((item) => item.classification === 'not_relevant').length,
+      }
+      const remainingMessage = result.remaining ? ` ${result.remaining} aguardam próximos lotes.` : ''
       const failureMessage = result.failed ? ` ${result.failed} falharam e podem ser tentadas novamente.` : ''
-      const remainingMessage = result.remaining ? ` Restam ${result.remaining} para próximos lotes.` : ''
-      setAiMessage(`${result.analyzed} analisadas com IA.${remainingMessage}${failureMessage}`)
+      setAiMessage(
+        `Lote concluído: ${counts.relevant} relevantes, ${counts.maybe} talvez relevantes e ` +
+        `${counts.notRelevant} pouco relevantes.${remainingMessage}${failureMessage}`,
+      )
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Erro ao analisar vagas com IA.')
     } finally {
@@ -219,8 +263,24 @@ export default function JobsPanel() {
   const filteredRecommendations = visibleRecommendations.filter((recommendation) => {
     const assessment = recommendation.ai_analysis
     if (aiFilter === 'unanalysed') return !assessment
-    return aiFilter === 'all' || assessment?.classification === aiFilter
+    const matchesClass = aiFilter === 'all' || assessment?.classification === aiFilter
+    const hiddenByAI = hideLowAIRelevance
+      && assessment?.classification === 'not_relevant'
+      && aiFilter !== 'not_relevant'
+    return matchesClass && !hiddenByAI
   })
+  const orderedRecommendations = aiSortOrder === 'profile'
+    ? filteredRecommendations
+    : [...filteredRecommendations].sort((left, right) => {
+      const priority = { relevant: 0, maybe: 1, not_relevant: 2 }
+      const leftClass = left.ai_analysis?.classification
+      const rightClass = right.ai_analysis?.classification
+      const classOrder = (leftClass ? priority[leftClass] : 3) - (rightClass ? priority[rightClass] : 3)
+      if (classOrder !== 0) return classOrder
+      const aiScoreOrder = (right.ai_analysis?.score ?? -1) - (left.ai_analysis?.score ?? -1)
+      if (aiScoreOrder !== 0) return aiScoreOrder
+      return right.score - left.score || right.coverage - left.coverage
+    })
 
   return (
     <section className="jobs-section" id="jobs">
@@ -231,11 +291,16 @@ export default function JobsPanel() {
             {discoveringJobs ? 'Buscando vagas…' : 'Descobrir vagas'} <span>↗</span>
           </button>
           <button className="button secondary" type="button" onClick={analyzeJobsWithAI} disabled={analyzingAI}>
-            {analyzingAI ? 'Analisando…' : 'Analisar próximas 10 com IA'}
+            {analyzingAI ? 'Analisando até 10 vagas…' : 'Analisar próximas 10 com IA'}
           </button>
-          <small>A análise é manual, pode consumir créditos da API e não altera o score atual.</small>
+          <small>A análise é manual, processa até 10 vagas uma por vez e pode levar alguns minutos. Ela pode consumir créditos da API e não altera o score atual.</small>
         </div>
       </div>
+      {analyzingAI && <div className="ai-analysis-progress" role="status" aria-live="polite">
+        <strong>Análise por IA em andamento</strong>
+        <span>O backend está analisando até 10 vagas sequencialmente. As conclusões aparecem aqui quando o lote terminar; não feche nem atualize a página.</span>
+        <div className="ai-progress-track" aria-hidden="true"><span /></div>
+      </div>}
       {discoveringJobs && <div className="discovery-progress" role="status" aria-live="polite">
         <strong>Busca em andamento</strong>
         <span>Consultando Remotive, JSearch (se configurado e dentro do limite) e Jobicy (respeitando o intervalo entre consultas).</span>
@@ -264,6 +329,17 @@ export default function JobsPanel() {
       </section>
       {message && <div className="feedback success" role="status">{message}</div>}
       {aiMessage && <div className="feedback success" role="status">{aiMessage}</div>}
+      {aiBatchResults.length > 0 && <section className="ai-batch-results" aria-labelledby="ai-batch-heading">
+        <div><p className="eyebrow">RESULTADO DO LOTE</p><h3 id="ai-batch-heading">O que a IA concluiu</h3></div>
+        <div className="ai-batch-list">{aiBatchResults.map((item) => <article key={item.job_id}>
+          <div className="ai-batch-title"><strong>{item.title}</strong><span className={'ai-classification ' + item.classification}>{({ relevant: 'Relevante', maybe: 'Talvez relevante', not_relevant: 'Pouco relevante' })[item.classification]} · {item.score}%</span></div>
+          <small>{item.company}</small>
+          <p>{item.rationale}</p>
+          {item.strengths.length > 0 && <p><b>Compatibilidades:</b> {item.strengths.join(' · ')}</p>}
+          {item.gaps.length > 0 && <p><b>Lacunas:</b> {item.gaps.join(' · ')}</p>}
+          {item.unknowns.length > 0 && <p><b>Não informado:</b> {item.unknowns.join(' · ')}</p>}
+        </article>)}</div>
+      </section>}
       {error && <div className="feedback error" role="alert">{error}</div>}
       <form className="recommendation-filters" onSubmit={(event) => void applyFilters(event)}>
         <label>Score mínimo<input type="number" min="0" max="100" value={minScore} onChange={(event) => setMinScore(event.target.value)} /></label>
@@ -271,14 +347,16 @@ export default function JobsPanel() {
         <label>Modalidade<select value={workplaceType} onChange={(event) => setWorkplaceType(event.target.value)}><option value="">Todas</option><option value="remote">Remota</option><option value="hybrid">Híbrida</option><option value="onsite">Presencial</option></select></label>
         <label className="filter-check"><input type="checkbox" checked={includeExcluded} onChange={(event) => setIncludeExcluded(event.target.checked)} />Incluir vagas com critérios excluídos</label>
         <label className="filter-check"><input type="checkbox" checked={includeIneligible} onChange={(event) => setIncludeIneligible(event.target.checked)} />Incluir vagas fora do pré-filtro (para revisão)</label>
+        <label>Ordenar por<select value={aiSortOrder} onChange={(event) => setAiSortOrder(event.target.value as 'profile' | 'ai')}><option value="profile">Compatibilidade do perfil</option><option value="ai">Relevância da IA</option></select></label>
         <label>Relevância IA<select value={aiFilter} onChange={(event) => setAiFilter(event.target.value)}><option value="all">Todas</option><option value="relevant">Relevantes</option><option value="maybe">Talvez</option><option value="not_relevant">Pouco relevantes</option><option value="unanalysed">Ainda não analisadas</option></select></label>
+        <label className="filter-check"><input type="checkbox" checked={hideLowAIRelevance} onChange={(event) => setHideLowAIRelevance(event.target.checked)} />Ocultar pouco relevantes pela IA</label>
         <button className="button secondary" type="submit">Aplicar filtros</button>
       </form>
       {loading ? <p className="jobs-empty">Calculando compatibilidade…</p> : filteredRecommendations.length === 0 ? (
         <div className="jobs-empty"><span>✳</span><h3>Nenhuma vaga elegível para estes filtros.</h3><p>As vagas coletadas continuam salvas. Confira se localização, modalidade e área estão configuradas como deseja ou marque “Incluir vagas fora do pré-filtro” para ver os motivos. Anúncios antigos de Greenhouse, Lever e demonstração permanecem no histórico.</p></div>
       ) : (
         <div className="jobs-list">
-          {filteredRecommendations.map((recommendation) => {
+          {orderedRecommendations.map((recommendation) => {
             const { job } = recommendation
             const sources = job.sources.filter((item) => DISCOVERY_SOURCES.has(item.source))
             const source = sources[0]

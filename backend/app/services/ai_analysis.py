@@ -4,13 +4,14 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_openai_api_key, get_openai_model
+from app.core.config import get_ai_api_key, get_ai_model
 from app.models import AIJobAnalysis, Job, ProfessionalProfile
 from app.providers.ai.base import AIJobAnalyzer
-from app.providers.ai.openai import AIProviderError, OpenAIJobAnalyzer
+from app.providers.ai.openrouter import AIProviderError, OpenRouterJobAnalyzer
 from app.repositories.jobs import list_discovery_jobs
 from app.repositories.profile import get_or_create_profile
 from app.schemas.ai_analysis import AIAnalysisBatchRead
+from app.services.matching import rank_jobs
 
 ANALYSIS_BATCH_LIMIT = 10
 PROMPT_VERSION = "job-relevance-v1"
@@ -90,11 +91,15 @@ def run_next_ai_analysis(
     limit: int = ANALYSIS_BATCH_LIMIT,
 ) -> AIAnalysisBatchRead:
     profile = get_or_create_profile(db)
-    model = analyzer.model if analyzer else get_openai_model()
-    jobs = [
+    model = analyzer.model if analyzer else get_ai_model()
+    candidate_jobs = [
         job for job in list_discovery_jobs(db, include_ineligible=True)
         if job.status == "open"
         if any(source.source in DISCOVERY_SOURCES for source in job.sources)
+    ]
+    jobs = [
+        recommendation.job
+        for recommendation in rank_jobs(candidate_jobs, profile, include_excluded=True)
     ]
     analyses = {
         item.job_id: item
@@ -113,13 +118,14 @@ def run_next_ai_analysis(
     if not pending:
         return AIAnalysisBatchRead(analyzed=0, remaining=0, failed=0, limit=limit)
     if analyzer is None:
-        api_key = get_openai_api_key()
+        api_key = get_ai_api_key()
         if not api_key:
-            raise AIAnalysisConfigurationError("Configure OPENAI_API_KEY no ambiente do backend.")
-        analyzer = OpenAIJobAnalyzer(api_key=api_key, model=model)
+            raise AIAnalysisConfigurationError("Configure OPENROUTER_API_KEY no ambiente do backend.")
+        analyzer = OpenRouterJobAnalyzer(api_key=api_key, model=model)
 
     analyzed = 0
     failed = 0
+    items = []
     for job, profile_data, job_data, request_hash in pending[:limit]:
         try:
             result = analyzer.analyze(profile_data, job_data)
@@ -141,7 +147,15 @@ def run_next_ai_analysis(
         record.gaps = result.gaps
         record.unknowns = result.unknowns
         analyzed += 1
+        items.append({
+            "job_id": job.id,
+            "title": job.title,
+            "company": job.company,
+            **result.model_dump(),
+        })
 
     db.commit()
     remaining = max(0, len(pending) - min(limit, len(pending)) + failed)
-    return AIAnalysisBatchRead(analyzed=analyzed, remaining=remaining, failed=failed, limit=limit)
+    return AIAnalysisBatchRead(
+        analyzed=analyzed, remaining=remaining, failed=failed, limit=limit, items=items
+    )

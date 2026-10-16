@@ -30,8 +30,21 @@ class AIJobAnalysisRead(BaseModel):
     analyzed_at: datetime
 
 
+class AIAnalysisBatchItemRead(BaseModel):
+    job_id: int
+    title: str
+    company: str
+    classification: Literal["relevant", "maybe", "not_relevant"]
+    score: int = Field(ge=0, le=100)
+    rationale: str
+    strengths: list[str]
+    gaps: list[str]
+    unknowns: list[str]
+
+
 class AIAnalysisBatchRead(BaseModel):
     analyzed: int
     remaining: int
     failed: int
     limit: int
+    items: list[AIAnalysisBatchItemRead] = Field(default_factory=list)

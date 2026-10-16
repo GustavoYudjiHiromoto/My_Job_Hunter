@@ -40,6 +40,19 @@ const recommendations = [{
     analyzed_at: '2026-10-12T12:00:00Z',
   },
 }]
+let activeRecommendations = recommendations
+
+const variedAIRecommendations = [
+  {
+    ...recommendations[0], job: { ...jobs[0], id: 3, title: 'Vaga pouco relevante' }, score: 99,
+    ai_analysis: { ...recommendations[0].ai_analysis, classification: 'not_relevant' as const, score: 12 },
+  },
+  {
+    ...recommendations[0], job: { ...jobs[0], id: 2, title: 'Vaga talvez relevante' }, score: 96,
+    ai_analysis: { ...recommendations[0].ai_analysis, classification: 'maybe' as const, score: 61 },
+  },
+  recommendations[0],
+]
 
 describe('recomendações de vagas M5', () => {
   afterEach(() => {
@@ -48,6 +61,8 @@ describe('recomendações de vagas M5', () => {
   })
 
   beforeEach(() => {
+    localStorage.clear()
+    activeRecommendations = recommendations
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url === '/api/notifications/settings') return Promise.resolve({ ok: true, json: async () => ({ enabled: false, recipient_email: '', minimum_score: null, smtp_configured: false }) })
       if (url === '/api/notifications') return Promise.resolve({ ok: true, json: async () => [] })
@@ -72,10 +87,15 @@ describe('recomendações de vagas M5', () => {
         })
       }
       if (url === '/api/jobs/ai-analysis' && options?.method === 'POST') {
-        return Promise.resolve({ ok: true, json: async () => ({ analyzed: 1, remaining: 0, failed: 0, limit: 10 }) })
+        return Promise.resolve({ ok: true, json: async () => ({
+          analyzed: 1, remaining: 0, failed: 0, limit: 10,
+          items: [{ job_id: 1, title: jobs[0].title, company: jobs[0].company,
+            classification: 'relevant', score: 93, rationale: 'Tecnologias centrais e nível são compatíveis.',
+            strengths: ['Python'], gaps: [], unknowns: ['Salário não informado'] }],
+        }) })
       }
       if (typeof url === 'string' && url.startsWith('/api/jobs/recommendations')) {
-        return Promise.resolve({ ok: true, json: async () => recommendations })
+        return Promise.resolve({ ok: true, json: async () => activeRecommendations })
       }
       return Promise.resolve({ ok: true, json: async () => jobs })
     }))
@@ -100,6 +120,21 @@ describe('recomendações de vagas M5', () => {
   })
 
   it('dispara análise de IA manual e informa o lote processado', async () => {
+    let finishAnalysis: (() => void) | undefined
+    const pendingAnalysis = new Promise<void>((resolve) => { finishAnalysis = resolve })
+    const mockedFetch = vi.mocked(fetch)
+    const originalFetch = mockedFetch.getMockImplementation()!
+    mockedFetch.mockImplementation((url, options) => {
+      if (url === '/api/jobs/ai-analysis' && options?.method === 'POST') {
+        return pendingAnalysis.then(() => new Response(JSON.stringify({
+          analyzed: 1, remaining: 0, failed: 0, limit: 10,
+          items: [{ job_id: 1, title: jobs[0].title, company: jobs[0].company,
+            classification: 'relevant', score: 93, rationale: 'Tecnologias centrais e nível são compatíveis.',
+            strengths: ['Python'], gaps: [], unknowns: ['Salário não informado'] }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return originalFetch(url, options)
+    })
     const user = userEvent.setup()
     render(<JobsPanel />)
     await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
@@ -107,7 +142,50 @@ describe('recomendações de vagas M5', () => {
     await user.click(screen.getByRole('button', { name: 'Analisar próximas 10 com IA' }))
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/jobs/ai-analysis', { method: 'POST' }))
-    expect(await screen.findByText('1 analisadas com IA.')).toBeInTheDocument()
+    expect(screen.getByText('O backend está analisando até 10 vagas sequencialmente. As conclusões aparecem aqui quando o lote terminar; não feche nem atualize a página.')).toBeInTheDocument()
+    finishAnalysis?.()
+    expect(await screen.findByText('Lote concluído: 1 relevantes, 0 talvez relevantes e 0 pouco relevantes.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'O que a IA concluiu' })).toBeInTheDocument()
+    expect(screen.getAllByText('Tecnologias centrais e nível são compatíveis.')).toHaveLength(2)
+    expect(screen.getAllByText((_content, element) => element?.textContent === 'Compatibilidades: Python')).toHaveLength(2)
+  })
+
+  it('ordena por classificação e score de IA sem alterar a ordem determinística inicial', async () => {
+    activeRecommendations = variedAIRecommendations
+    const user = userEvent.setup()
+    const { container } = render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+    const cardTitles = () => Array.from(container.querySelectorAll('.jobs-list .recommendation-card h3'))
+      .map((heading) => heading.textContent)
+
+    expect(cardTitles()).toEqual([
+      'Vaga pouco relevante', 'Vaga talvez relevante', 'Pessoa Desenvolvedora Backend Júnior',
+    ])
+    await user.selectOptions(screen.getByLabelText('Ordenar por'), 'ai')
+    expect(cardTitles()).toEqual([
+      'Pessoa Desenvolvedora Backend Júnior', 'Vaga talvez relevante', 'Vaga pouco relevante',
+    ])
+    expect(localStorage.getItem('my-job-hunter.ai-sort-order')).toBe('ai')
+  })
+
+  it('oculta pouco relevantes de forma reversível e mantém preferência entre montagens', async () => {
+    activeRecommendations = variedAIRecommendations
+    const user = userEvent.setup()
+    const firstMount = render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+    const hideControl = screen.getByLabelText('Ocultar pouco relevantes pela IA')
+
+    await user.click(hideControl)
+    expect(firstMount.container.querySelectorAll('.jobs-list .recommendation-card')).toHaveLength(2)
+    expect(localStorage.getItem('my-job-hunter.hide-low-ai-relevance')).toBe('true')
+    await user.selectOptions(screen.getByLabelText('Relevância IA'), 'not_relevant')
+    expect(screen.getByRole('heading', { name: 'Vaga pouco relevante' })).toBeInTheDocument()
+
+    firstMount.unmount()
+    const secondMount = render(<JobsPanel />)
+    await screen.findByRole('heading', { name: 'Pessoa Desenvolvedora Backend Júnior' })
+    expect(screen.getByLabelText('Ocultar pouco relevantes pela IA')).toBeChecked()
+    expect(secondMount.container.querySelectorAll('.jobs-list .recommendation-card')).toHaveLength(2)
   })
 
   it('aciona a descoberta Remotive e mostra o resultado', async () => {

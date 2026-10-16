@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from './api'
 import JobsPanel from './JobsPanel'
+import ResumeImportPanel from './ResumeImportPanel'
 import { emptyPreference, type Preference, type ProfessionalProfile } from './types'
 
 const emptyProfile: ProfessionalProfile = {
@@ -18,9 +19,14 @@ export default function App() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [savingPreferences, setSavingPreferences] = useState(false)
+  const [profileFormVersion, setProfileFormVersion] = useState(0)
   const [preferenceFeedback, setPreferenceFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   const refresh = async () => setProfile(await api.profile())
+  const refreshAfterResumeImport = async () => {
+    await refresh()
+    setProfileFormVersion((version) => version + 1)
+  }
   useEffect(() => {
     api.profile().then(setProfile).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false))
   }, [])
@@ -118,7 +124,7 @@ export default function App() {
         <div className="main-column">
           <section className="panel" id="profile">
             <div className="section-heading"><div className="section-icon">01</div><div><p className="eyebrow">QUEM É VOCÊ</p><h2>Perfil profissional</h2></div></div>
-            <form onSubmit={saveProfile} className="form-grid">
+            <form key={profileFormVersion} onSubmit={saveProfile} className="form-grid">
               <label>Nome completo<input name="full_name" defaultValue={profile.full_name} placeholder="Como devemos chamar você?" /></label>
               <label>E-mail<input name="email" type="email" defaultValue={profile.email} placeholder="voce@email.com" /></label>
               <label className="full-width">Resumo profissional<textarea name="professional_summary" rows={3} defaultValue={profile.professional_summary} placeholder="Conte um pouco sobre sua experiência e objetivos." /></label>
@@ -128,6 +134,8 @@ export default function App() {
               <div className="form-actions full-width"><button className="button primary" type="submit">Salvar perfil <span>↗</span></button></div>
             </form>
           </section>
+
+          <ResumeImportPanel onApplied={refreshAfterResumeImport} />
 
           <section className="panel">
             <div className="section-heading"><div className="section-icon">02</div><div><p className="eyebrow">SUA TRAJETÓRIA</p><h2>Experiências</h2></div><span className="count-pill">{profile.experiences.length}</span></div>

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AIJobAnalysis, Job, JobSource
-from app.providers.ai.openai import AIProviderError, OpenAIJobAnalyzer
+from app.providers.ai.openrouter import AIProviderError, OpenRouterJobAnalyzer
 from app.schemas.ai_analysis import AIAnalysisResult
 from app.schemas.jobs import NormalizedJob
 
@@ -64,16 +64,22 @@ class _FakeAnalyzer:
 def test_manual_analysis_batches_ten_caches_results_and_omits_profile_pii(client, monkeypatch):
     from app.services import ai_analysis
 
-    monkeypatch.setattr(ai_analysis, "get_openai_api_key", lambda: "test-key")
-    monkeypatch.setenv("OPENAI_MODEL", "fake-model")
+    monkeypatch.setattr(ai_analysis, "get_ai_api_key", lambda: "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
     analyzer = _FakeAnalyzer()
-    monkeypatch.setattr(ai_analysis, "OpenAIJobAnalyzer", lambda api_key, model: analyzer)
+    monkeypatch.setattr(ai_analysis, "OpenRouterJobAnalyzer", lambda api_key, model: analyzer)
     _add_discovery_jobs(12)
 
     first = client.post("/api/jobs/ai-analysis")
 
     assert first.status_code == 200
-    assert first.json() == {"analyzed": 10, "remaining": 2, "failed": 0, "limit": 10}
+    assert first.json()["analyzed"] == 10
+    assert first.json()["remaining"] == 2
+    assert first.json()["failed"] == 0
+    assert first.json()["limit"] == 10
+    assert len(first.json()["items"]) == 10
+    assert first.json()["items"][0]["title"].startswith("Backend Developer ")
+    assert first.json()["items"][0]["classification"] == "relevant"
     assert len(analyzer.calls) == 10
     sent_profile, sent_job = analyzer.calls[0]
     assert not {"full_name", "email", "resume_text", "professional_summary"}.intersection(sent_profile)
@@ -98,37 +104,65 @@ def test_manual_analysis_batches_ten_caches_results_and_omits_profile_pii(client
 def test_partial_provider_failure_does_not_discard_successful_assessments(client, monkeypatch):
     from app.services import ai_analysis
 
-    monkeypatch.setattr(ai_analysis, "get_openai_api_key", lambda: "test-key")
-    monkeypatch.setenv("OPENAI_MODEL", "fake-model")
+    monkeypatch.setattr(ai_analysis, "get_ai_api_key", lambda: "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
     analyzer = _FakeAnalyzer(fail_once=True)
-    monkeypatch.setattr(ai_analysis, "OpenAIJobAnalyzer", lambda api_key, model: analyzer)
+    monkeypatch.setattr(ai_analysis, "OpenRouterJobAnalyzer", lambda api_key, model: analyzer)
     _add_discovery_jobs(2)
 
     response = client.post("/api/jobs/ai-analysis")
 
     assert response.status_code == 200
-    assert response.json() == {"analyzed": 1, "remaining": 1, "failed": 1, "limit": 10}
+    assert response.json()["analyzed"] == 1
+    assert response.json()["remaining"] == 1
+    assert response.json()["failed"] == 1
+    assert len(response.json()["items"]) == 1
     assert len(analyzer.calls) == 2
     with Session(_test_engine()) as db:
         assert db.scalar(select(func.count(AIJobAnalysis.id))) == 1
     assert "sensitive provider details" not in response.text
 
 
-def test_missing_openai_key_is_reported_without_provider_call(client, monkeypatch):
+def test_ai_batch_follows_deterministic_recommendation_order(client, monkeypatch):
+    from types import SimpleNamespace
+
     from app.services import ai_analysis
 
-    monkeypatch.setattr(ai_analysis, "get_openai_api_key", lambda: "")
+    monkeypatch.setattr(ai_analysis, "get_ai_api_key", lambda: "test-key")
+    analyzer = _FakeAnalyzer()
+    monkeypatch.setattr(ai_analysis, "OpenRouterJobAnalyzer", lambda api_key, model: analyzer)
+    monkeypatch.setattr(
+        ai_analysis,
+        "rank_jobs",
+        lambda jobs, profile, **kwargs: [
+            SimpleNamespace(job=job) for job in sorted(jobs, key=lambda item: item.title, reverse=True)
+        ],
+    )
+    _add_discovery_jobs(3)
+
+    response = client.post("/api/jobs/ai-analysis")
+
+    assert response.status_code == 200
+    assert [job_data["title"] for _profile_data, job_data in analyzer.calls] == [
+        "Backend Developer 2", "Backend Developer 1", "Backend Developer 0",
+    ]
+
+
+def test_missing_openrouter_key_is_reported_without_provider_call(client, monkeypatch):
+    from app.services import ai_analysis
+
+    monkeypatch.setattr(ai_analysis, "get_ai_api_key", lambda: "")
     _add_discovery_jobs(1)
 
     response = client.post("/api/jobs/ai-analysis")
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "Configure OPENAI_API_KEY no ambiente do backend."
+    assert response.json()["detail"] == "Configure OPENROUTER_API_KEY no ambiente do backend."
     with Session(_test_engine()) as db:
         assert db.scalar(select(func.count(AIJobAnalysis.id))) == 0
 
 
-def test_openai_provider_parses_structured_output_without_leaking_http_errors(monkeypatch):
+def test_openrouter_provider_parses_structured_output_without_leaking_http_errors(monkeypatch):
     expected = {
         "classification": "maybe",
         "score": 62,
@@ -141,37 +175,37 @@ def test_openai_provider_parses_structured_output_without_leaking_http_errors(mo
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(200, json={"output": [{"type": "message", "content": [
-            {"type": "output_text", "text": json.dumps(expected)},
-        ]}]})
+        return httpx.Response(200, json={"choices": [{"message": {
+            "role": "assistant", "content": json.dumps(expected),
+        }}]})
 
     httpx_client = httpx.Client
     monkeypatch.setattr(
-        "app.providers.ai.openai.httpx.Client",
+        "app.providers.ai.openrouter.httpx.Client",
         lambda **kwargs: httpx_client(transport=httpx.MockTransport(handler), **kwargs),
     )
-    result = OpenAIJobAnalyzer("unit-test-key", "fake-model").analyze({"skills": "Python"}, {"title": "Dev"})
+    result = OpenRouterJobAnalyzer("unit-test-key", "fake-model").analyze({"skills": "Python"}, {"title": "Dev"})
 
     assert result.classification == "maybe"
-    assert requests[0].url == "https://api.openai.com/v1/responses"
+    assert requests[0].url == "https://openrouter.ai/api/v1/chat/completions"
     assert requests[0].headers["authorization"] == "Bearer unit-test-key"
     request_payload = json.loads(requests[0].content)
-    assert request_payload["store"] is False
-    assert request_payload["text"]["format"]["type"] == "json_schema"
+    assert request_payload["response_format"]["type"] == "json_schema"
+    assert request_payload["response_format"]["json_schema"]["strict"] is True
 
 
-def test_openai_provider_wraps_http_error_without_response_body_or_key(monkeypatch):
+def test_openrouter_provider_wraps_http_error_without_response_body_or_key(monkeypatch):
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, json={"error": {"message": "private response body"}})
 
     httpx_client = httpx.Client
     monkeypatch.setattr(
-        "app.providers.ai.openai.httpx.Client",
+        "app.providers.ai.openrouter.httpx.Client",
         lambda **kwargs: httpx_client(transport=httpx.MockTransport(handler), **kwargs),
     )
     api_key = "unit-test-secret"
     with pytest.raises(AIProviderError) as error:
-        OpenAIJobAnalyzer(api_key, "fake-model").analyze(
+        OpenRouterJobAnalyzer(api_key, "fake-model").analyze(
             {"skills": "secret profile"}, {"title": "private job"}
         )
 

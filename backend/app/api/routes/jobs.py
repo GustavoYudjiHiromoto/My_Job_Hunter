@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.fixture import FixtureAdapter
-from app.core.config import get_greenhouse_board_tokens, get_lever_region, get_lever_sites, get_openai_model
+from app.core.config import get_ai_model, get_greenhouse_board_tokens, get_lever_region, get_lever_sites
 from app.db.session import get_db
 from app.models import AIJobAnalysis, JobEligibility
 from app.repositories.jobs import get_job, list_discovery_jobs, list_jobs
@@ -87,7 +87,7 @@ def read_recommendations(
         analysis = ai_analyses.get(item.job.id)
         if (
             analysis is not None
-            and analysis.model == get_openai_model()
+            and analysis.model == get_ai_model()
             and analysis.request_hash == current_analysis_hash(profile, item.job, analysis.model)
         ):
             updates["ai_analysis"] = analysis

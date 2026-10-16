@@ -28,11 +28,12 @@ def get_jsearch_api_key() -> str:
     return os.getenv("JSEARCH_API_KEY", "").strip()
 
 
-def get_openai_api_key() -> str:
-    """Retorna a chave opcional do provider de análise por IA."""
-    return os.getenv("OPENAI_API_KEY", "").strip()
+def get_ai_api_key() -> str:
+    """Retorna a chave opcional do provider OpenRouter."""
+    return os.getenv("OPENROUTER_API_KEY", "").strip()
 
 
-def get_openai_model() -> str:
-    """Modelo usado na avaliação manual de compatibilidade por IA."""
-    return os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+def get_ai_model() -> str:
+    """Modelo OpenRouter usado na avaliação manual de compatibilidade por IA."""
+    default = "openai/gpt-4.1-mini"
+    return os.getenv("OPENROUTER_MODEL", default).strip() or default

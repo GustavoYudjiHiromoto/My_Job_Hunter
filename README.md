@@ -21,7 +21,8 @@ O **Job Hunter** é uma aplicação *full-stack* desenvolvida para centralizar e
 * **Agregação e Descoberta Multicanal:** Coleta de vagas em ATSs corporativos (**Greenhouse**, **Lever**) e provedores de busca pública/APIs (**Remotive**, **JSearch / OpenWeb Ninja**, **Jobicy**), respeitando limites de taxa e cotas.
 * **Deduplicação *Cross-Source*:** Identifica a mesma oportunidade anunciada em múltiplos canais através de URLs canônicas e assinaturas normalizadas (título, empresa e localização), fundindo registros sem perder dados de proveniência.
 * **Motor Determinístico de Ranking:** Algoritmo explicável de compatibilidade que pondera competências, cargos desejados, modalidade, localização, senioridade e pretensão salarial em uma escala de 0 a 100, detalhando pontos de aderência e ausências.
-* **Triagem Semântica com IA (LLM):** Avaliação de relevância sob demanda com **GPT-4.1-mini** (OpenAI Responses API com *Structured Outputs*), contando com **cache local baseado em hash SHA-256** (perfil + vaga + modelo + versão de prompt) para evitar requisições redundantes e custos desnecessários.
+* **Triagem Semântica com IA (LLM):** Avaliação de relevância sob demanda via OpenRouter Chat Completions API com *Structured Outputs*, contando com **cache local baseado em hash SHA-256** (perfil + vaga + modelo + versão de prompt) para evitar requisições redundantes e custos desnecessários.
+* **Importação assistida de currículo:** Envio de PDF, extração local do texto e prévia editável dos dados profissionais via OpenRouter; o perfil só é atualizado após confirmação explícita.
 * **Monitoramento & Reconciliação:** Detecta o encerramento de vagas após ausência consecutiva em múltiplos ciclos de coleta de uma mesma fonte.
 * **Concorrência Segura (*File Locks*):** Controle de concorrência com travas de arquivo no sistema operacional (`msvcrt` no Windows / `fcntl` no Unix) para proteger a integridade do SQLite e evitar coletas duplicadas em paralelo.
 * **Alertas por E-mail:** Envio automatizado de notificações via SMTP para oportunidades que atingem o score mínimo desejado.
@@ -32,7 +33,7 @@ O **Job Hunter** é uma aplicação *full-stack* desenvolvida para centralizar e
 
 * **Backend:** Python 3.13, FastAPI, SQLAlchemy 2, Pydantic v2, SQLite, HTTPX, Ruff.
 * **Frontend:** React 19, TypeScript, Vite, CSS Modules / Styles puros.
-* **Inteligência Artificial:** OpenAI API (`gpt-4.1-mini`) com Structured Outputs / JSON Schema estrito.
+* **Inteligência Artificial:** OpenRouter Chat Completions API com Structured Outputs / JSON Schema estrito.
 * **Testes Automatizados:** Pytest (Backend) e Vitest + React Testing Library (Frontend).
 
 ---
@@ -86,13 +87,29 @@ O sistema funciona localmente sem configurações obrigatórias adicionais. Para
 
 | Variável | Descrição |
 | :--- | :--- |
-| `OPENAI_API_KEY` | Chave da OpenAI para habilitar a análise de relevância com IA. |
-| `OPENAI_MODEL` | Modelo utilizado pela análise semântica (Padrão: `gpt-4.1-mini`). |
+| `OPENROUTER_API_KEY` | Chave da OpenRouter para habilitar a análise de relevância com IA. |
+| `OPENROUTER_MODEL` | Slug do modelo utilizado pela análise semântica (Padrão: `openai/gpt-4.1-mini`; o modelo deve suportar Structured Outputs). |
 | `JSEARCH_API_KEY` | Chave da OpenWeb Ninja para descoberta de vagas via JSearch. |
 | `GREENHOUSE_BOARDS` | Lista de tokens de boards Greenhouse separados por vírgula. |
 | `LEVER_SITES` | Lista de identificadores de empresas no Lever separados por vírgula. |
 | `SMTP_HOST` / `SMTP_PORT` | Configuração de servidor SMTP para notificações por e-mail. |
 | `DATABASE_URL` | URL de conexão do banco (Padrão: `sqlite:///job_hunter.db`). |
+
+Para usar a análise por IA no Windows, defina a chave e, opcionalmente, o modelo no PowerShell antes de iniciar o backend. As variáveis ficam disponíveis somente nessa sessão do terminal:
+
+```powershell
+$env:OPENROUTER_API_KEY = "sua-chave-da-openrouter"
+$env:OPENROUTER_MODEL = "openai/gpt-4.1-mini"
+uvicorn app.main:app --reload --app-dir backend
+```
+
+Use um modelo listado pela OpenRouter que ofereça suporte a Structured Outputs (`json_schema`). Não compartilhe nem versione a chave.
+
+### Importar currículo em PDF
+
+Configure `OPENROUTER_API_KEY` no ambiente do backend e reinicie o servidor. Na seção **Preencher pelo currículo**, selecione um PDF e marque a autorização para enviar o texto extraído à OpenRouter. O arquivo não é mantido pelo app; a extração ocorre localmente, mas o texto do currículo é enviado ao modelo escolhido para estruturar a prévia. Revise e edite os campos e escolha quais seções importar antes de confirmar.
+
+São aceitos PDFs de até 8 MB e 40 páginas. PDFs protegidos por senha e documentos digitalizados que dependam de OCR não são suportados. Nome e e-mail não são campos retornados nem atualizados pela importação. Experiências e formações iguais às já cadastradas são ignoradas, sem apagar registros existentes.
 
 ---
 

@@ -46,6 +46,33 @@ export interface ProfessionalProfile {
   preference: Preference | null
 }
 
+export interface ResumeExperienceDraft {
+  company: string
+  role: string
+  location: string
+  description: string
+  start_date: string | null
+  end_date: string | null
+  is_current: boolean
+}
+
+export interface ResumeEducationDraft {
+  institution: string
+  degree: string
+  field_of_study: string
+  start_year: number | null
+  end_year: number | null
+}
+
+export interface ResumeImportDraft {
+  professional_summary: string
+  skills: string
+  languages: string
+  experiences: ResumeExperienceDraft[]
+  education: ResumeEducationDraft[]
+  resume_text: string
+}
+
 export interface JobSource {
   source: string
   external_id: string
@@ -109,6 +136,19 @@ export interface AIAnalysisBatch {
   remaining: number
   failed: number
   limit: number
+  items: AIAnalysisBatchItem[]
+}
+
+export interface AIAnalysisBatchItem {
+  job_id: number
+  title: string
+  company: string
+  classification: AIJobAnalysis['classification']
+  score: number
+  rationale: string
+  strengths: string[]
+  gaps: string[]
+  unknowns: string[]
 }
 
 export interface RecommendationFilters {
